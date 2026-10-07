@@ -68,7 +68,6 @@
 <script src="/libs/flatpickr/js/flatpickr.min.js"></script>
 <script src="/libs/imask/js/imask.min.js"></script>
 <script src="/libs/tinymce/tinymce.min.js" referrerpolicy="origin"></script>
-<script src="/libs/clipboardjs/clipboard.min.js"></script>
 <script src="/js/keepalive.js"></script>
 <script src="/libs/DataTables/datatables.min.js"></script>
 <script src="/libs/intl-tel-input/js/intlTelInputWithUtils.min.js"></script>

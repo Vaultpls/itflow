@@ -413,7 +413,7 @@ if (isset($_GET['contact_id'])) {
                                 if (empty($asset_ip)) {
                                     $asset_ip_display = "-";
                                 } else {
-                                    $asset_ip_display = "$asset_ip<button class='btn btn-sm' data-clipboard-text='$asset_ip'><i class='far fa-copy text-secondary'></i></button>";
+                                    $asset_ip_display = "$asset_ip<button class='btn btn-sm btn-link clipboardjs' type='button' data-clipboard-text='$asset_ip'><i class='far fa-copy text-secondary'></i></button>";
                                 }
                                 $asset_nat_ip = escapeHtml($row['interface_nat_ip']);
                                 $asset_ipv6 = escapeHtml($row['interface_ipv6']);

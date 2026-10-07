@@ -645,31 +645,44 @@ function itflowInit() {
         });
     });
 
-    // Bootstrap 4 needed _enforceFocus patched out so ClipboardJS could reach
-    // its textarea inside a modal - TinyMCE's popups needed it too, see
-    // itflowTinyMceFocus. Bootstrap 5 registers no jQuery plugin, so
-    // the old $.fn.modal line threw and killed everything below it. If copying
-    // from inside a modal ever misbehaves, ClipboardJS's `container` option is
-    // the lever, not a Bootstrap patch.
-
-    // Clipboard
+    // Copy buttons: any element with class="clipboardjs" and its text in
+    // data-clipboard-text. That is ClipboardJS's markup contract, kept so none of
+    // the call sites change - the library itself is no longer used here.
+    //
+    // ClipboardJS copies by selecting a hidden textarea. Under Bootstrap 5 that
+    // textarea has to be inside the open modal or the focus trap pulls focus
+    // back out before the copy runs, so e5d1fe2 pinned ClipboardJS's `container`
+    // to the last .modal on the page. A container is fixed for the life of the
+    // instance, though, and the last .modal was usually the wrong one: a HIDDEN
+    // modal on any page that includes one up front (invoice, credentials, asset,
+    // contact), and a DETACHED one everywhere else once any ajax modal had been
+    // opened and closed - the notifications bell included. A hidden or detached
+    // textarea holds no selection, so nothing was copied, and since ClipboardJS
+    // reports success from the text rather than from the copy itself, all of
+    // those clicks still flashed "Copied!".
+    //
+    // So this resolves everything at click time. Bound once on document, as this
+    // file re-runs on every ajax modal open.
     itflowStep('clipboard', function () {
-        if (window.itflowClipboard) {
-            window.itflowClipboard.destroy();
-        }
+        itflowBindOnce('itflowCopy', 'click', '.clipboardjs', function (e) {
+            // Copy Guest URL (invoice, quote) is an <a href="#"> - without this
+            // every copy also jumped the page back to the top.
+            e.preventDefault();
 
-        var modals = document.querySelectorAll('.modal');
-        var clipboard = new ClipboardJS('.clipboardjs', {
-            container: modals.length ? modals[modals.length - 1] : document.body
-        });
-        window.itflowClipboard = clipboard;
+            const trigger = this;
+            const target = itflowCopyFeedbackTarget(trigger);
+            const text = trigger.getAttribute('data-clipboard-text') || '';
 
-        clipboard.on('success', function(e) {
-            flashTooltip(e.trigger, 'Copied!');
-        });
+            // An empty field would otherwise wipe whatever is on the clipboard
+            if (text === '') {
+                flashTooltip(target, 'Nothing to copy');
+                return;
+            }
 
-        clipboard.on('error', function(e) {
-            flashTooltip(e.trigger, 'Failed!');
+            itflowCopyText(text, trigger).then(
+                function () { flashTooltip(target, 'Copied!'); },
+                function () { flashTooltip(target, 'Failed!'); }
+            );
         });
     });
 
@@ -861,6 +874,71 @@ function flashTooltip(button, message) {
     setTimeout(function () {
         tip.dispose();
     }, 1000);
+}
+
+/**
+ * Copy text to the clipboard. Resolves once it is really there and rejects
+ * when it could not be written, so callers can flash "Copied!" or "Failed!"
+ * honestly.
+ *
+ * The async Clipboard API involves no selection and no focus, so no modal's
+ * focus trap can get in its way. Browsers only offer it in a secure context
+ * (HTTPS or localhost), so a plain-HTTP install falls back to a textarea and
+ * execCommand('copy') - placed inside the trigger's own modal, worked out now
+ * rather than in advance.
+ */
+function itflowCopyText(text, trigger) {
+    if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text);
+    }
+    return itflowCopyTextLegacy(text, trigger)
+        ? Promise.resolve()
+        : Promise.reject(new Error('Copy failed'));
+}
+
+function itflowCopyTextLegacy(text, trigger) {
+    // The textarea has to be rendered and focusable to hold a selection - a
+    // hidden or detached one is exactly what broke - and inside the open modal,
+    // or Bootstrap's focus trap takes focus back before the copy runs.
+    const host = (trigger && trigger.closest('.modal')) || document.body;
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', ''); // no on-screen keyboard on touch devices
+    area.style.position = 'fixed';
+    area.style.top = '0';
+    area.style.left = '-9999px';
+    host.appendChild(area);
+    area.focus({ preventScroll: true });
+    area.select();
+    area.setSelectionRange(0, text.length); // iOS ignores select() alone
+
+    let copied = false;
+    try {
+        copied = document.execCommand('copy');
+    } catch (err) {
+        copied = false;
+    }
+    area.remove();
+
+    // Removing the focused textarea leaves focus on <body> - hand it back.
+    if (trigger && trigger.isConnected) {
+        trigger.focus({ preventScroll: true });
+    }
+    return copied;
+}
+
+/**
+ * Where to flash a copy button's "Copied!". Bootstrap closes a dropdown on the
+ * same click, so a dropdown item like Copy Guest URL is hidden by the time the
+ * tooltip is positioned - and a tooltip on a hidden element is drawn in the
+ * top-left corner of the window. Use the dropdown's wrapper instead, which on
+ * invoice and quote is shrink-wrapped around the toggle. Not the toggle itself:
+ * it already holds the Dropdown instance, and Bootstrap refuses a second
+ * instance on one element.
+ */
+function itflowCopyFeedbackTarget(trigger) {
+    const menu = trigger.closest('.dropdown-menu');
+    return (menu && menu.parentElement) || trigger;
 }
 
 /*

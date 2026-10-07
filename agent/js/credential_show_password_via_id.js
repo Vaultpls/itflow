@@ -29,10 +29,12 @@ function copyPasswordViaCredentialID(button, credential_id) {
         function(data) {
             const credential = JSON.parse(data);
 
-            navigator.clipboard.writeText(credential.password).then(function() {
-                // Same "Copied!" flash the ClipboardJS handler in app.js uses
-                flashTooltip(button, 'Copied!');
-            });
+            // itflowCopyText (js/app.js) also works on a plain-HTTP install,
+            // where navigator.clipboard does not exist and this used to throw
+            itflowCopyText(credential.password, button).then(
+                function () { flashTooltip(button, 'Copied!'); },
+                function () { flashTooltip(button, 'Failed!'); }
+            );
         }
     );
 }

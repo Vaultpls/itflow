@@ -79,6 +79,12 @@ function callAiApi($model, $messages) {
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
     curl_setopt($ch, CURLOPT_TIMEOUT, AI_REQUEST_TIMEOUT);
+    // Provider gateways often redirect (http -> https, trailing slash, regional
+    // endpoint). Follow the redirect and keep this a POST so the JSON body and
+    // Authorization header survive the hop.
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_MAXREDIRS, 5);
+    curl_setopt($ch, CURLOPT_POSTREDIR, CURL_REDIR_POST_ALL);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
         'Content-Type: application/json',
         'Authorization: Bearer ' . $model['ai_provider_api_key'],

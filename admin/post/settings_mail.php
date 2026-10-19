@@ -87,7 +87,10 @@ if (isset($_POST['edit_mail_smtp_settings'])) {
     $config_smtp_provider            = escapeSql($_POST['config_smtp_provider']);
     $config_smtp_host       = escapeSql($_POST['config_smtp_host'] ?? $config_smtp_host);
     $config_smtp_port       = intval($_POST['config_smtp_port'] ?? $config_smtp_port);
-    $config_smtp_encryption = escapeSql($_POST['config_smtp_encryption'] ?? $config_smtp_encryption);
+    $config_smtp_ssl        = isset($_POST['config_smtp_ssl']);
+    $config_smtp_encryption = $config_smtp_ssl
+        ? 'ssl'
+        : escapeSql($_POST['config_smtp_encryption'] ?? $config_smtp_encryption);
     $config_smtp_username   = escapeSql($_POST['config_smtp_username'] ?? $config_smtp_username);
     $config_smtp_password   = escapeSql($_POST['config_smtp_password'] ?? $config_smtp_password);
 

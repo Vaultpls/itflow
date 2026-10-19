@@ -137,13 +137,17 @@ $imap_ready = $imap_standard_ready || $imap_oauth_ready;
                             </div>
                             <div class="mb-3 col-md-3">
                                 <label>Encryption</label>
-                                <div class="input-group"><span class="input-group-text"><i class="fa fa-fw fa-lock"></i></span>
-                                    <select class="form-select" name="config_smtp_encryption">
-                                        <option value="">None</option>
-                                        <option <?php if ($config_smtp_encryption == 'tls') { echo "selected"; } ?> value="tls">TLS</option>
-                                        <option <?php if ($config_smtp_encryption == 'ssl') { echo "selected"; } ?> value="ssl">SSL</option>
+                                <div class="form-check form-switch mt-2">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="config_smtp_ssl" name="config_smtp_ssl" value="1" <?php if ($config_smtp_encryption === 'ssl') { echo 'checked'; } ?>>
+                                    <label class="form-check-label" for="config_smtp_ssl">Use SSL (implicit TLS)</label>
+                                </div>
+                                <div id="smtp_tls_select_wrap" class="mt-2" <?php if ($config_smtp_encryption === 'ssl') { echo 'style="display:none;"'; } ?>>
+                                    <select class="form-select" name="config_smtp_encryption" id="config_smtp_encryption">
+                                        <option value="" <?php if (empty($config_smtp_encryption) || $config_smtp_encryption === 'none') { echo 'selected'; } ?>>None</option>
+                                        <option value="tls" <?php if ($config_smtp_encryption === 'tls' || $config_smtp_encryption === 'ssl') { echo 'selected'; } ?>>TLS (STARTTLS)</option>
                                     </select>
                                 </div>
+                                <small class="form-text text-muted">SSL is usually port 465; TLS/STARTTLS is usually port 587.</small>
                             </div>
                         </div>
                     </div>
@@ -476,6 +480,10 @@ $imap_ready = $imap_standard_ready || $imap_oauth_ready;
     const smtpUserLb = document.getElementById('smtp_user_label');
     const smtpUserHt = document.getElementById('smtp_user_hint');
     const smtpUserIn = document.getElementById('config_smtp_username');
+    const smtpSsl = document.getElementById('config_smtp_ssl');
+    const smtpEnc = document.getElementById('config_smtp_encryption');
+    const smtpEncWrap = document.getElementById('smtp_tls_select_wrap');
+    const smtpPort = document.querySelector('#smtp_conn_fields input[name="config_smtp_port"]');
 
     const imapConn = document.getElementById('imap_conn_fields');
     const imapUser = document.getElementById('imap_user_group');
@@ -491,6 +499,23 @@ $imap_ready = $imap_standard_ready || $imap_oauth_ready;
     const oauthHint = document.getElementById('oauth_hint');
     const oauthClientId = document.getElementById('config_mail_oauth_client_id');
     const oauthClientSecret = document.getElementById('config_mail_oauth_client_secret');
+
+    // Port 465 is implicit TLS. Keep the SSL checkbox and the
+    // None/STARTTLS selector from contradicting each other.
+    function syncSmtpEncryption() {
+        if (!smtpSsl || !smtpEnc || !smtpEncWrap || !smtpPort) return;
+        if (!isStd(val(smtpSel))) return;
+
+        const useSsl = smtpSsl.checked;
+        smtpEncWrap.style.display = useSsl ? 'none' : '';
+        smtpEnc.disabled = useSsl;
+
+        if (useSsl) {
+            if (!smtpPort.value || smtpPort.value === '587') smtpPort.value = '465';
+        } else {
+            if (smtpPort.value === '465') smtpPort.value = '587';
+        }
+    }
 
     function render() {
         const sv = val(smtpSel), iv = val(imapSel);
@@ -537,10 +562,13 @@ $imap_ready = $imap_standard_ready || $imap_oauth_ready;
             const oauthLink = document.querySelector('#mailTabs .nav-link[data-bs-target="#tab-oauth"]');
             if (oauthLink && oauthLink.classList.contains('active')) activateTab('#tab-sending');
         }
+
+        syncSmtpEncryption();
     }
 
     if (smtpSel) smtpSel.addEventListener('change', render);
     if (imapSel) imapSel.addEventListener('change', render);
+    if (smtpSsl) smtpSsl.addEventListener('change', syncSmtpEncryption);
     document.querySelectorAll('.goto-oauth').forEach(b => b.addEventListener('click', () => activateTab('#tab-oauth')));
     render();
 })();

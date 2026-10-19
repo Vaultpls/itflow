@@ -67,6 +67,14 @@ if (isset($_POST['api_key'])) {
 }
 // Prefer an Authorization: Bearer header so keys do not have to travel in URLs
 $authorization_header = $_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
+if ($authorization_header === '' && function_exists('apache_request_headers')) {
+    foreach (apache_request_headers() as $header_name => $header_value) {
+        if (strcasecmp($header_name, 'Authorization') === 0) {
+            $authorization_header = $header_value;
+            break;
+        }
+    }
+}
 if (preg_match('/^Bearer\s+(.+)$/i', $authorization_header, $bearer_match)) {
     $api_key = escapeSql(trim($bearer_match[1]));
 }

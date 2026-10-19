@@ -384,17 +384,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['login']) || isset($_
                     }
 
                     // remember-me cookie allows bypass
+                    $remember_rotated = false;
                     if (isset($_COOKIE['rememberme'])) {
+                        $remember_cookie = (string) $_COOKIE['rememberme'];
+                        $remember_hash = hash('sha256', $remember_cookie);
                         $remember_tokens = mysqli_query($mysqli, "
-                            SELECT remember_token_token
+                            SELECT remember_token_id, remember_token_token
                             FROM remember_tokens
                             WHERE remember_token_user_id = $user_id
                               AND remember_token_created_at > (NOW() - INTERVAL $config_login_remember_me_expire DAY)
                         ");
                         while ($remember_row = mysqli_fetch_assoc($remember_tokens)) {
-                            if (hash_equals($remember_row['remember_token_token'], $_COOKIE['rememberme'])) {
+                            $stored_token = (string) $remember_row['remember_token_token'];
+                            if (hash_equals($stored_token, $remember_hash) || hash_equals($stored_token, $remember_cookie)) {
                                 $mfa_is_complete = true;
                                 $extended_log    = 'with 2FA remember-me cookie';
+
+                                // Rotate: the used token is deleted and a fresh one issued
+                                $remember_id = intval($remember_row['remember_token_id']);
+                                mysqli_query($mysqli, "DELETE FROM remember_tokens WHERE remember_token_id = $remember_id");
+                                $newRememberToken = bin2hex(random_bytes(64));
+                                setcookie('rememberme', $newRememberToken, ['expires' => time() + 86400 * $config_login_remember_me_expire, 'path' => '/', 'secure' => true, 'httponly' => true, 'samesite' => 'Lax']);
+                                $new_remember_hash = hash('sha256', $newRememberToken);
+                                mysqli_query($mysqli, "INSERT INTO remember_tokens SET remember_token_user_id = $user_id, remember_token_token = '$new_remember_hash'");
+                                $remember_rotated = true;
                                 break;
                             }
                         }
@@ -409,14 +422,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['login']) || isset($_
                     if ($mfa_is_complete) {
 
                         // Remember me token creation
-                        if (isset($_POST['remember_me'])) {
+                        if (isset($_POST['remember_me']) && !$remember_rotated) {
                             $newRememberToken = bin2hex(random_bytes(64));
-                            setcookie('rememberme', $newRememberToken, time() + 86400 * $config_login_remember_me_expire, "/", null, true, true);
+                            setcookie('rememberme', $newRememberToken, ['expires' => time() + 86400 * $config_login_remember_me_expire, 'path' => '/', 'secure' => true, 'httponly' => true, 'samesite' => 'Lax']);
 
+                            $new_remember_hash = hash('sha256', $newRememberToken);
                             mysqli_query($mysqli, "
                                 INSERT INTO remember_tokens
                                 SET remember_token_user_id = $user_id,
-                                    remember_token_token   = '$newRememberToken'
+                                    remember_token_token   = '$new_remember_hash'
                             ");
                             $extended_log .= ", generated a new remember-me token";
                         }

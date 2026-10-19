@@ -13,6 +13,25 @@ if (str_contains($modal_script, '/admin/modals/')
     enforceAdminPermission();
 }
 
+// Standalone agent modals are directly reachable too: map their directory to the
+// same module the matching API resource uses. New directories fail closed to support.
+if (preg_match('#/agent/modals/([a-z_]+)/#', $modal_script, $modal_match)) {
+    $modal_modules = [
+        'account' => 'module_financial', 'asset' => 'module_support', 'calendar' => 'module_support',
+        'certificate' => 'module_support', 'client' => 'module_client', 'contact' => 'module_client',
+        'credential' => 'module_credential', 'document' => 'module_support', 'domain' => 'module_support',
+        'expense' => 'module_financial', 'file' => 'module_support', 'folder' => 'module_support',
+        'income' => 'module_financial', 'invoice' => 'module_sales', 'location' => 'module_client',
+        'network' => 'module_support', 'payment' => 'module_financial', 'product' => 'module_sales',
+        'project' => 'module_support', 'quote' => 'module_sales', 'rack' => 'module_support',
+        'recurring_expense' => 'module_financial', 'recurring_invoice' => 'module_sales',
+        'recurring_ticket' => 'module_support', 'revenue' => 'module_financial', 'service' => 'module_client',
+        'software' => 'module_support', 'ticket' => 'module_support', 'transaction' => 'module_financial',
+        'transfer' => 'module_financial', 'trip' => 'module_financial', 'vendor' => 'module_client',
+    ];
+    enforceUserPermission($modal_modules[$modal_match[1]] ?? 'module_support');
+}
+
 header('Content-Type: application/json');
 
 // Check for the 'id' parameter

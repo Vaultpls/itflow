@@ -496,6 +496,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['login']) || isset($_
                         session_regenerate_id(true);
 
                         $_SESSION['user_id']    = $user_id;
+                        $_SESSION['user_session_version'] = (string) $selectedRow['user_php_session'];
                         $_SESSION['csrf_token'] = randomString(32);
                         $_SESSION['logged']     = true;
 
@@ -664,6 +665,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['login']) || isset($_
                             $_SESSION['client_logged_in'] = true;
                             $_SESSION['client_id']        = $client_id;
                             $_SESSION['user_id']          = $user_id;
+                            $_SESSION['user_session_version'] = (string) $selectedRow['user_php_session'];
                             $_SESSION['user_type']        = 2;
                             $_SESSION['contact_id']       = $contact_id;
                             $_SESSION['login_method']     = "local";

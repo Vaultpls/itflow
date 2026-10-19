@@ -126,7 +126,7 @@ if (isset($_GET['code']) || isset($_GET['error'])) {
 
             $upn = mysqli_real_escape_string($mysqli, $msgraph_response["userPrincipalName"]);
 
-            $sql = mysqli_query($mysqli, "SELECT contact_client_id, contact_id, user_auth_method, user_email, user_id FROM users
+            $sql = mysqli_query($mysqli, "SELECT contact_client_id, contact_id, user_auth_method, user_email, user_id, user_php_session FROM users
                 LEFT JOIN contacts ON user_id = contact_user_id
                 LEFT JOIN clients ON contact_client_id = client_id
                 WHERE user_email = '$upn'
@@ -152,6 +152,7 @@ if (isset($_GET['code']) || isset($_GET['error'])) {
                 $_SESSION['client_logged_in'] = true;
                 $_SESSION['client_id'] = $client_id;
                 $_SESSION['user_id'] = $user_id;
+                $_SESSION['user_session_version'] = (string) $row['user_php_session'];
                 $_SESSION['user_type'] = 2;
                 $_SESSION['contact_id'] = $contact_id;
                 $_SESSION['csrf_token'] = randomString(32);

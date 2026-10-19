@@ -125,7 +125,8 @@ if ($_SERVER['REQUEST_METHOD'] == "POST") {
 
             // Set password, invalidate token, logging
             $password = password_hash($_POST['new_password'], PASSWORD_DEFAULT);
-            mysqli_query($mysqli, "UPDATE users SET user_password = '$password', user_password_reset_token = NULL, user_password_reset_token_expire = NULL WHERE user_id = $user_id LIMIT 1");
+            $new_session_version = bin2hex(random_bytes(16));
+            mysqli_query($mysqli, "UPDATE users SET user_password = '$password', user_password_reset_token = NULL, user_password_reset_token_expire = NULL, user_php_session = '$new_session_version' WHERE user_id = $user_id LIMIT 1");
             mysqli_query($mysqli, "INSERT INTO logs SET log_type = 'Contact User', log_action = 'Modify', log_description = 'Reset portal password for $email.', log_ip = '$ip', log_user_agent = '$user_agent', log_client_id = $client, log_user_id = $user_id");
 
             // Send confirmation email

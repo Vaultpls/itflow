@@ -152,7 +152,8 @@ if (isset($_POST['edit_your_user_password'])) {
 
     $new_password = password_hash($new_password, PASSWORD_DEFAULT);
     $user_specific_encryption_ciphertext = encryptUserSpecificKey($_POST['new_password']);
-    mysqli_query($mysqli,"UPDATE users SET user_password = '$new_password', user_specific_encryption_ciphertext = '$user_specific_encryption_ciphertext' WHERE user_id = $session_user_id");
+    $new_session_version = bin2hex(random_bytes(16));
+    mysqli_query($mysqli,"UPDATE users SET user_password = '$new_password', user_specific_encryption_ciphertext = '$user_specific_encryption_ciphertext', user_php_session = '$new_session_version' WHERE user_id = $session_user_id");
 
     logAudit("User Account", "Edit", "$session_name changed their password");
 

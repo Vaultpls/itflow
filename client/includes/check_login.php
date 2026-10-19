@@ -25,9 +25,19 @@ $session_contact_id = intval($_SESSION['contact_id']);
 $session_user_id = intval($_SESSION['user_id']);
 
 // Load user session vars
-$sql = mysqli_query($mysqli, "SELECT user_archived_at, user_avatar, user_status, user_type FROM users WHERE users.user_id = $session_user_id");
+$sql = mysqli_query($mysqli, "SELECT user_archived_at, user_avatar, user_status, user_type, user_php_session FROM users WHERE users.user_id = $session_user_id");
 
 $row = mysqli_fetch_assoc($sql);
+
+$session_version = (string) ($row['user_php_session'] ?? '');
+if (isset($_SESSION['user_session_version']) && !hash_equals($session_version, (string) $_SESSION['user_session_version'])) {
+    session_unset();
+    session_destroy();
+    redirect("/login.php");
+}
+if (!isset($_SESSION['user_session_version'])) {
+    $_SESSION['user_session_version'] = $session_version;
+}
 
 $session_avatar = $row['user_avatar'];
 $session_user_type = intval($row['user_type']);

@@ -644,7 +644,9 @@ if (isset($_POST['edit_profile'])) {
 
     if (!empty($new_password)) {
         $password_hash = password_hash($new_password, PASSWORD_DEFAULT);
-        mysqli_query($mysqli, "UPDATE users SET user_password = '$password_hash' WHERE user_id = $session_user_id");
+        $new_session_version = bin2hex(random_bytes(16));
+        mysqli_query($mysqli, "UPDATE users SET user_password = '$password_hash', user_php_session = '$new_session_version' WHERE user_id = $session_user_id");
+        $_SESSION['user_session_version'] = $new_session_version;
 
         // Logging
         logAudit("Contact", "Edit", "Client contact $session_contact_name edited their profile/password in the client portal", $session_client_id, $session_contact_id);

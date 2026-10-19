@@ -167,7 +167,7 @@ if (isset($_POST['edit_user'])) {
     if (!empty($new_password)) {
         $new_password = password_hash($new_password, PASSWORD_DEFAULT);
         $user_specific_encryption_ciphertext = encryptUserSpecificKey(trim($_POST['new_password']));
-        mysqli_query($mysqli, "UPDATE users SET user_password = '$new_password', user_specific_encryption_ciphertext = '$user_specific_encryption_ciphertext' WHERE user_id = $user_id");
+        mysqli_query($mysqli, "UPDATE users SET user_password = '$new_password', user_specific_encryption_ciphertext = '$user_specific_encryption_ciphertext', user_php_session = '" . bin2hex(random_bytes(16)) . "' WHERE user_id = $user_id");
         //Extended Logging
         $extended_log_description .= ", password changed";
     }
@@ -315,7 +315,7 @@ if (isset($_POST['restore_user'])) {
     if (!empty($new_password)) {
         $new_password = password_hash($new_password, PASSWORD_DEFAULT);
         $user_specific_encryption_ciphertext = encryptUserSpecificKey(trim($_POST['new_password']));
-        mysqli_query($mysqli, "UPDATE users SET user_password = '$new_password', user_specific_encryption_ciphertext = '$user_specific_encryption_ciphertext' WHERE user_id = $user_id");
+        mysqli_query($mysqli, "UPDATE users SET user_password = '$new_password', user_specific_encryption_ciphertext = '$user_specific_encryption_ciphertext', user_php_session = '" . bin2hex(random_bytes(16)) . "' WHERE user_id = $user_id");
         //Extended Logging
         $extended_log_description .= ", password changed";
     }
@@ -423,7 +423,7 @@ if (isset($_POST['ir_reset_user_password'])) {
         echo $user_email . " -- " . $new_password; // Show
         $new_password = password_hash($new_password, PASSWORD_DEFAULT);
 
-        mysqli_query($mysqli, "UPDATE users SET user_password = '$new_password', user_specific_encryption_ciphertext = '$user_specific_encryption_ciphertext' WHERE user_id = $user_id");
+        mysqli_query($mysqli, "UPDATE users SET user_password = '$new_password', user_specific_encryption_ciphertext = '$user_specific_encryption_ciphertext', user_php_session = '" . bin2hex(random_bytes(16)) . "' WHERE user_id = $user_id");
 
         echo "<br><br>";
     }

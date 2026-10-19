@@ -8,8 +8,8 @@ if (isset($_GET['logout'])) {
 
     // Logging
     logAudit("Logout", "Success", "$session_name logged out");
-    
-    mysqli_query($mysqli, "UPDATE users SET user_php_session = '' WHERE user_id = $session_user_id");
+
+    // user_php_session is the session version; don't clear it on one device's logout
 
     // Revoke this device's remember-me token, and drop the cookie
     if (!empty($_COOKIE['rememberme'])) {

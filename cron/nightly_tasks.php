@@ -158,9 +158,8 @@ mysqli_query($mysqli, "DELETE FROM shared_items WHERE item_view_limit > 0 AND it
 // Clean-up shared items that have expired
 mysqli_query($mysqli, "DELETE FROM shared_items WHERE item_expire_at < NOW()");
 
-// Invalidate any password reset links
-mysqli_query($mysqli, "UPDATE users SET user_password_reset_token = NULL WHERE user_archived_at IS NULL");
-mysqli_query($mysqli, "UPDATE users SET user_password_reset_token = NULL"); // TODO: Make this 'expired' tokens only when we actually use expiry
+// Invalidate expired password reset links (and legacy tokens with no expiry)
+mysqli_query($mysqli, "UPDATE users SET user_password_reset_token = NULL, user_password_reset_token_expire = NULL WHERE user_password_reset_token_expire < NOW() OR (user_password_reset_token IS NOT NULL AND user_password_reset_token_expire IS NULL)");
 
 // Clean-up old dismissed notifications
 mysqli_query($mysqli, "DELETE FROM notifications WHERE notification_dismissed_at < CURDATE() - INTERVAL 90 DAY");

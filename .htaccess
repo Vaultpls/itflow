@@ -1,2 +1,2 @@
-# Prevent access to .git, .github, and config.php
-RedirectMatch 401 ^/(\.git|\.github|config\.php)
+# Prevent access to .git, .github, config.php, and deploy/
+RedirectMatch 401 ^/(\.git|\.github|config\.php|deploy)

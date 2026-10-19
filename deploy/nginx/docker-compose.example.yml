@@ -1,0 +1,69 @@
+# Example only. Copy to /opt/itflow/docker-compose.yml (or run with -f) and
+# replace the placeholders. The build context is this directory.
+services:
+  itflow:
+    build: .
+    image: itflow-nginx:20261019
+    container_name: itflow
+    hostname: itflow
+    restart: unless-stopped
+    depends_on:
+      itflow-db:
+        condition: service_healthy
+    networks:
+      - wan
+      - itflow-db
+    ports:
+      # Keep the app off the public interface; the host nginx terminates TLS.
+      - "127.0.0.1:8080:8080"
+    environment:
+      - TZ=America/Chicago
+      - ITFLOW_NAME=ITFlow
+      - ITFLOW_URL=https://itflow.example.com
+      - ITFLOW_PORT=8080
+      - ITFLOW_REPO=github.com/Vaultpls/itflow
+      - ITFLOW_REPO_BRANCH=master
+      - ITFLOW_LOG_LEVEL=info
+      - ITFLOW_DB_HOST=itflow-db
+      - ITFLOW_DB_PASS=${ITFLOW_DB_PASS:?set ITFLOW_DB_PASS}
+    volumes:
+      - itflow-data:/var/www/localhost/htdocs
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/login.php"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  itflow-db:
+    hostname: itflow-db
+    container_name: itflow-db
+    image: mariadb:10.11.6
+    restart: unless-stopped
+    networks:
+      - itflow-db
+    environment:
+      - MARIADB_RANDOM_ROOT_PASSWORD=true
+      - MARIADB_DATABASE=itflow
+      - MARIADB_USER=itflow
+      - MARIADB_PASSWORD=${ITFLOW_DB_PASS:?set ITFLOW_DB_PASS}
+    volumes:
+      - itflow-db:/var/lib/mysql/
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+networks:
+  wan:
+    name: wan
+    driver: bridge
+  itflow-db:
+    name: itflow-db
+    driver: bridge
+
+volumes:
+  itflow-data:
+  itflow-db:

@@ -6,6 +6,8 @@
 
 header("X-Frame-Options: DENY");
 
+securityHeaders();
+
 ?>
 
 <!DOCTYPE html>

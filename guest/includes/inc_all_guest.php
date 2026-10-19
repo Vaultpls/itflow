@@ -4,6 +4,8 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/config.php';
 require_once $_SERVER['DOCUMENT_ROOT'] . '/functions.php';
 require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/load_global_settings.php';
 
+securityHeaders();
+
 require_once $_SERVER['DOCUMENT_ROOT'] . '/includes/session_init.php';
 
 // Set Timezone

@@ -5,6 +5,8 @@
  */
 
 header("X-Frame-Options: DENY"); // Legacy
+
+securityHeaders();
 ?>
 
 <!DOCTYPE html>

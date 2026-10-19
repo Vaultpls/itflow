@@ -2,8 +2,6 @@
 
 // Unified login (Agent + Client) using one email & password
 
-header("Content-Security-Policy: default-src 'self'");
-
 if (!file_exists('config.php')) {
     header("Location: /setup");
     exit();
@@ -12,6 +10,8 @@ if (!file_exists('config.php')) {
 require_once "config.php";
 require_once "functions.php";
 require_once "libs/totp/totp.php";
+
+securityHeaders();
 
 require_once __DIR__ . "/includes/session_init.php";
 

@@ -318,6 +318,26 @@ zgjRYR/zGN5l+az6RB3+0mJRdZdv/y2aRkBlwTxx2gOrPbQAco4a/IOmkE3EbHe7
     return false;
 }
 
+// Security headers for every HTML surface. Called after functions.php is loaded and
+// before output; headers_sent() keeps includes safe.
+function securityHeaders() {
+    if (headers_sent()) {
+        return;
+    }
+
+    header('X-Content-Type-Options: nosniff');
+    header('Referrer-Policy: same-origin');
+    header('X-Frame-Options: DENY');
+
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+    if ($https) {
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+    }
+
+    header("Content-Security-Policy: default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; frame-src 'self'; form-action 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
+}
+
 // TOTP secrets are encrypted at rest with a key derived from the install's backup
 // key, so a database or backup read does not hand over every agent's second factor.
 // Existing plaintext values keep working and are rewritten encrypted on the next save.

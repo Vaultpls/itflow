@@ -89,7 +89,14 @@ if ($contact['contact_billing'] == 1) {
 }
 
 // Load client session vars
-$client_sql = mysqli_query($mysqli, "SELECT client_name FROM clients WHERE client_id = $session_client_id");
+$client_sql = mysqli_query($mysqli, "SELECT client_name, client_archived_at FROM clients WHERE client_id = $session_client_id");
 $client = mysqli_fetch_assoc($client_sql);
+
+// Archiving a client must end its portal sessions, not just block new logins
+if ($client['client_archived_at'] !== null) {
+    session_unset();
+    session_destroy();
+    redirect("/login.php");
+}
 
 $session_client_name = $client['client_name'];

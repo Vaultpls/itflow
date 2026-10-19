@@ -318,6 +318,22 @@ zgjRYR/zGN5l+az6RB3+0mJRdZdv/y2aRkBlwTxx2gOrPbQAco4a/IOmkE3EbHe7
     return false;
 }
 
+// Purify rich text before it is placed in an HTML e-mail. The web UI purifies on
+// display; mail clients do not, so the same HTMLPurifier pass is needed here.
+function purifyHtml($html) {
+    require_once __DIR__ . '/../libs/htmlpurifier/HTMLPurifier.standalone.php';
+
+    static $purifier = null;
+    if ($purifier === null) {
+        $config = HTMLPurifier_Config::createDefault();
+        $config->set('Cache.DefinitionImpl', null);
+        $config->set('URI.AllowedSchemes', ['data' => true, 'src' => true, 'http' => true, 'https' => true]);
+        $purifier = new HTMLPurifier($config);
+    }
+
+    return $purifier->purify((string) $html);
+}
+
 // Security headers for every HTML surface. Called after functions.php is loaded and
 // before output; headers_sent() keeps includes safe.
 function securityHeaders() {

@@ -8,7 +8,7 @@ if (isset($_GET['client_id'])) {
     $client_url = "&client_id=$client_id";
 } else {
     require_once "includes/inc_all.php";
-    $client_event_query = '';
+    $client_event_query = 'WHERE 1 = 1';
     $client_query = 'WHERE 1 = 1';
     $client_url = '';
 }
@@ -134,7 +134,7 @@ require_once "modals/calendar/calendar_event_add.php";
 
 //loop through IDs and create a modal for each
 $sql = mysqli_query($mysqli, "SELECT calendar_color, calendar_id, calendar_name, event_client_id, event_description, event_end,
-    event_id, event_location, event_repeat, event_start, event_title FROM calendar_events LEFT JOIN calendars ON event_calendar_id = calendar_id $client_event_query");
+    event_id, event_location, event_repeat, event_start, event_title FROM calendar_events LEFT JOIN calendars ON event_calendar_id = calendar_id $client_event_query " . clientScopeSql('event_client_id'));
 while ($row = mysqli_fetch_assoc($sql)) {
     $event_id = intval($row['event_id']);
     $event_title = escapeHtml($row['event_title']);

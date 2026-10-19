@@ -59,6 +59,7 @@
   bash itflow_install.sh
 ```
 - Other manual installation methods are available in the [docs](https://docs.itflow.org/installation).
+- This fork also includes a containerized nginx + php-fpm deployment: [`deploy/nginx`](deploy/nginx/README.md).
 
 ### Managed Hosting
 - If you'd prefer, we can [host ITFlow for you](https://services.itflow.org/hosting.php) (coming soon).

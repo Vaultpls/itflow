@@ -6,29 +6,56 @@
 function getSslCertificate($full_name)
 {
 
-    // Parse host and port
+    // Parse host; the port is fixed at 443 so this cannot probe arbitrary services
     $name = parse_url("//$full_name", PHP_URL_HOST);
-    $port = parse_url("//$full_name", PHP_URL_PORT);
-
-    // Default port
-    if (!$port) {
-        $port = "443";
-    }
 
     $certificate = array();
     $certificate['success'] = false;
 
-    // Only run if we think the domain is valid
-    if (!filter_var($name, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME)) {
+    // Only run for a public DNS name - no IP literals, single labels or private ranges
+    if (empty($name) || filter_var($name, FILTER_VALIDATE_IP) || strpos($name, '.') === false || !filter_var($name, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME)) {
         $certificate['expire'] = '';
         $certificate['issued_by'] = '';
         $certificate['public_key'] = '';
         return $certificate;
     }
 
-    // Get SSL/TSL certificate (using verify peer false to allow for self-signed certs) for domain on default port
-    $socket = "ssl://$name:$port";
-    $get = stream_context_create(array("ssl" => array("capture_peer_cert" => true, "verify_peer" => false,)));
+    // Resolve first and connect to the validated address, so DNS cannot rebind afterwards
+    $addresses = array();
+    $records = @dns_get_record($name, DNS_A | DNS_AAAA);
+    if (is_array($records)) {
+        foreach ($records as $record) {
+            if (!empty($record['ip'])) {
+                $addresses[] = $record['ip'];
+            }
+            if (!empty($record['ipv6'])) {
+                $addresses[] = $record['ipv6'];
+            }
+        }
+    }
+    if (empty($addresses)) {
+        $addresses = @gethostbynamel($name) ?: array();
+    }
+
+    $connect_ip = '';
+    foreach ($addresses as $address) {
+        if (filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+            $connect_ip = $address;
+            break;
+        }
+    }
+
+    if ($connect_ip === '') {
+        $certificate['expire'] = '';
+        $certificate['issued_by'] = '';
+        $certificate['public_key'] = '';
+        return $certificate;
+    }
+
+    // Get SSL/TLS certificate (verify_peer false to allow self-signed certs), SNI kept for the hostname
+    $socket_host = strpos($connect_ip, ':') !== false ? "[$connect_ip]" : $connect_ip;
+    $socket = "ssl://$socket_host:443";
+    $get = stream_context_create(array("ssl" => array("capture_peer_cert" => true, "verify_peer" => false, "verify_peer_name" => false, "peer_name" => $name, "SNI_enabled" => true)));
     $read = stream_socket_client($socket, $errno, $errstr, 5, STREAM_CLIENT_CONNECT, $get);
 
     // If the socket connected

@@ -52,20 +52,14 @@ if ($_SERVER['REQUEST_METHOD'] !== "GET" && $_SERVER['REQUEST_METHOD'] !== "POST
     exit();
 }
 
-// Check API key is provided
-if (!isset($_GET['api_key']) && !isset($_POST['api_key'])) {
-    header(WORDING_UNAUTHORIZED);
-    exit();
-}
-
-// Set API key variable
+// Set API key variable (query/body first, Authorization: Bearer preferred)
+$api_key = '';
 if (isset($_GET['api_key'])) {
     $api_key = escapeSql($_GET['api_key']);
 }
 if (isset($_POST['api_key'])) {
     $api_key = escapeSql($_POST['api_key']);
 }
-// Prefer an Authorization: Bearer header so keys do not have to travel in URLs
 $authorization_header = $_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
 if ($authorization_header === '' && function_exists('apache_request_headers')) {
     foreach (apache_request_headers() as $header_name => $header_value) {
@@ -77,6 +71,12 @@ if ($authorization_header === '' && function_exists('apache_request_headers')) {
 }
 if (preg_match('/^Bearer\s+(.+)$/i', $authorization_header, $bearer_match)) {
     $api_key = escapeSql(trim($bearer_match[1]));
+}
+
+// Check API key is provided
+if ($api_key === '') {
+    header(WORDING_UNAUTHORIZED);
+    exit();
 }
 
 // Validate API key

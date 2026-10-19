@@ -335,7 +335,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['login']) || isset($_
                     }
 
                     $user_name                  = escapeSql($selectedRow['user_name']);
-                    $token                      = escapeSql($selectedRow['user_token']);
+                    $token                      = decryptTotpSecret($selectedRow['user_token'] ?? '');
                     $force_mfa                  = intval($selectedRow['user_config_force_mfa']);
                     $user_encryption_ciphertext = $selectedRow['user_specific_encryption_ciphertext'];
 

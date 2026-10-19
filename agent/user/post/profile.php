@@ -218,7 +218,8 @@ if (isset($_POST['enable_mfa'])) {
     if (TokenAuth6238::verify($token, $verify_code, 1)) {
 
         // SUCCESS
-        mysqli_query($mysqli,"UPDATE users SET user_token = '$token' WHERE user_id = $session_user_id");
+        $encrypted_token = escapeSql(encryptTotpSecret($token));
+        mysqli_query($mysqli,"UPDATE users SET user_token = '$encrypted_token' WHERE user_id = $session_user_id");
 
         // Delete any existing MFA tokens - these browsers should be re-validated
         mysqli_query($mysqli, "DELETE FROM remember_tokens WHERE remember_token_user_id = $session_user_id");

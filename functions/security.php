@@ -318,6 +318,62 @@ zgjRYR/zGN5l+az6RB3+0mJRdZdv/y2aRkBlwTxx2gOrPbQAco4a/IOmkE3EbHe7
     return false;
 }
 
+// TOTP secrets are encrypted at rest with a key derived from the install's backup
+// key, so a database or backup read does not hand over every agent's second factor.
+// Existing plaintext values keep working and are rewritten encrypted on the next save.
+function totpSecretKey() {
+    $install_key = backupEncryptionKey();
+    if ($install_key === '') {
+        return '';
+    }
+    return hash_hkdf('sha256', $install_key, 32, 'itflow-totp-v1');
+}
+
+function encryptTotpSecret($secret) {
+    $secret = (string) $secret;
+    if ($secret === '') {
+        return '';
+    }
+
+    $key = totpSecretKey();
+    if ($key === '') {
+        return $secret; // no install key available - keep the existing behaviour
+    }
+
+    $iv = random_bytes(12);
+    $tag = '';
+    $ciphertext = openssl_encrypt($secret, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+    if ($ciphertext === false) {
+        return $secret;
+    }
+
+    return 'enc:v1:' . base64_encode($iv . $tag . $ciphertext);
+}
+
+function decryptTotpSecret($stored) {
+    $stored = (string) $stored;
+    if ($stored === '' || strpos($stored, 'enc:v1:') !== 0) {
+        return $stored; // legacy plaintext
+    }
+
+    $key = totpSecretKey();
+    if ($key === '') {
+        return '';
+    }
+
+    $raw = base64_decode(substr($stored, 7), true);
+    if ($raw === false || strlen($raw) < 28) {
+        return '';
+    }
+
+    $iv = substr($raw, 0, 12);
+    $tag = substr($raw, 12, 16);
+    $ciphertext = substr($raw, 28);
+    $plaintext = openssl_decrypt($ciphertext, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+
+    return $plaintext === false ? '' : $plaintext;
+}
+
 // Atomically claim one view against a shared item's view limit.
 // Returns true only if this request won the view; false means the share is
 // inactive, expired, or out of views. The UPDATE is the claim, so concurrent

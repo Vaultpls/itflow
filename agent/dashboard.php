@@ -1,11 +1,14 @@
 <?php
 require_once "includes/inc_all.php";
 
+// Financial totals are module-gated; the dashboard switch is not a permission
+$can_view_financial = lookupUserPermission('module_financial') >= 1;
+
 // Get current year or the selected year
 $year = isset($_GET['year']) ? intval($_GET['year']) : date('Y');
 
 // Update user settings based on GET parameters
-if (isset($_GET['enable_financial'])) {
+if ($can_view_financial && isset($_GET['enable_financial'])) {
     $enable_financial = intval($_GET['enable_financial']);
     mysqli_query($mysqli, "UPDATE user_settings SET user_config_dashboard_financial_enable = $enable_financial WHERE user_id = $session_user_id");
 }
@@ -19,6 +22,9 @@ if (isset($_GET['enable_technical'])) {
 $sql_user_dashboard_settings = mysqli_query($mysqli, "SELECT user_config_dashboard_financial_enable, user_config_dashboard_technical_enable FROM user_settings WHERE user_id = $session_user_id");
 $row = mysqli_fetch_assoc($sql_user_dashboard_settings);
 $user_config_dashboard_financial_enable = intval($row['user_config_dashboard_financial_enable']);
+if (!$can_view_financial) {
+    $user_config_dashboard_financial_enable = 0;
+}
 $user_config_dashboard_technical_enable = intval($row['user_config_dashboard_technical_enable']);
 
 // Get unique years from expenses, payments, invoices, revenues, tickets, clients, and users
@@ -64,9 +70,9 @@ $sql_years_select = mysqli_query($mysqli, "
             <?php } ?>
         </select>
 
-        <?php if ($session_user_role == 1 || ($session_user_role == 3 && $config_module_enable_accounting == 1)) { ?>
+        <?php if ($can_view_financial) { ?>
             <div class="form-check form-switch me-3">
-                <input type="checkbox" onchange="this.form.submit()" class="form-check-input" id="customSwitch1" name="enable_financial" value="1" <?php if ($user_config_dashboard_financial_enable == 1) { echo "checked"; } ?>>
+                <input type="checkbox" onchange="this.form.submit()" class="form-check-input" id="customSwitch1" name="enable_financial" value="1" <?php if ($can_view_financial && $user_config_dashboard_financial_enable == 1) { echo "checked"; } ?>>
                 <label class="form-check-label" for="customSwitch1">Financial</label>
             </div>
         <?php } ?>
@@ -81,7 +87,7 @@ $sql_years_select = mysqli_query($mysqli, "
 </div>
 
 <?php
-if ($user_config_dashboard_financial_enable == 1) {
+if ($can_view_financial && $user_config_dashboard_financial_enable == 1) {
 
     // Fetch financial data for the dashboard
     // Define variables to avoid errors in logs
@@ -802,7 +808,7 @@ if ($user_config_dashboard_technical_enable == 1) {
 
 <?php require_once "../includes/footer.php"; ?>
 
-<?php if ($user_config_dashboard_financial_enable == 1) { ?>
+<?php if ($can_view_financial && $user_config_dashboard_financial_enable == 1) { ?>
 
 <script>
     // Bootstrap-like defaults for Chart.js v4

@@ -86,6 +86,14 @@ function encryptUserSpecificKey($user_password) {
     // Decrypt the session key to get the master key
     $site_encryption_master_key = openssl_decrypt($user_encryption_session_ciphertext, 'aes-128-cbc', $user_encryption_session_key, 0, $user_encryption_session_iv);
 
+    // Never wrap the master key under an empty key. Without this guard a missing
+    // session-key cookie makes openssl_decrypt() return false, openssl_encrypt()
+    // then wraps the empty string, and the user's vault is silently destroyed.
+    if (empty($site_encryption_master_key)) {
+        http_response_code(409);
+        exit("Your encryption session has expired. Please sign out and sign in again before changing a password.");
+    }
+
     // Generate 128-bit (16 byte/char) kdhash of the users (new) password
     $user_password_kdhash = hash_pbkdf2('sha256', $user_password, $salt, 100000, 16);
 
@@ -131,7 +139,7 @@ function generateUserSessionKey($site_encryption_master_key) {
     include 'config.php';
 
     if ($config_https_only) {
-        setcookie("user_encryption_session_key", base64_encode($user_encryption_session_key), ['path' => '/', 'secure' => true, 'httponly' => true, 'samesite' => 'None']);
+        setcookie("user_encryption_session_key", base64_encode($user_encryption_session_key), ['path' => '/', 'secure' => true, 'httponly' => true, 'samesite' => 'Lax']);
     } else {
         setcookie("user_encryption_session_key", base64_encode($user_encryption_session_key), 0, "/");
         $_SESSION['alert_message'] = "Unencrypted connection flag set: Using non-secure cookies.";

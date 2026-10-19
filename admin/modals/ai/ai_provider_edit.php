@@ -34,11 +34,12 @@ ob_start();
         </div>
 
         <div class="mb-3">
-            <label>URL <strong class="text-danger">*</strong></label>
+            <label>API URL <strong class="text-danger">*</strong></label>
             <div class="input-group">
                     <span class="input-group-text"><i class="fa fa-fw fa-globe"></i></span>
-                <input type="url" class="form-control" name="url" value="<?= $url ?>" placeholder="ex https://ai.company.ext/api" maxlength="200">
+                <input type="url" class="form-control" name="url" value="<?= $url ?>" placeholder="ex https://api.openai.com/v1" maxlength="200">
             </div>
+            <small class="form-text text-muted">Base URL ending in <code>/v1</code> is fine &mdash; <code>/chat/completions</code> is added automatically.</small>
         </div>
 
         <div class="mb-3">

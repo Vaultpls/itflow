@@ -52,6 +52,26 @@ function getAiModel($use_case = 'General') {
 }
 
 /*
+ * Provider URLs may be either the full chat-completions endpoint or an
+ * OpenAI-compatible base URL. A base ending in /v1 (including /api/v1) gets
+ * the standard path appended, so users do not have to remember it.
+ */
+function aiChatCompletionsUrl($url) {
+
+    $url = rtrim(trim((string) $url), '/');
+
+    if ($url === '' || preg_match('#/chat/completions$#i', $url)) {
+        return $url;
+    }
+
+    if (preg_match('#/v\d+(?:\.\d+)?$#i', $url)) {
+        return $url . '/chat/completions';
+    }
+
+    return $url;
+}
+
+/*
  * Posts a chat-completion request. Returns:
  *
  *     ['ok' => true,  'content' => '...']
@@ -74,7 +94,7 @@ function callAiApi($model, $messages) {
         $data['temperature'] = floatval($model['ai_model_temperature']);
     }
 
-    $ch = curl_init($model['ai_provider_api_url']);
+    $ch = curl_init(aiChatCompletionsUrl($model['ai_provider_api_url']));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));

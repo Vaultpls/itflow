@@ -14,11 +14,12 @@ if (isset($_POST['add_api_key'])) {
     $expire = escapeSql($_POST['expire']);
     $user_id = intval($_POST['run_as_user']);
     $secret = escapeSql($_POST['key']); // API Key
+    $secret_hash = 'sha256:' . hash('sha256', $_POST['key']);
 
     // Credential decryption password
     $apikey_specific_encryption_ciphertext = encryptUserSpecificKey(trim($_POST['password']));
 
-    mysqli_query($mysqli,"INSERT INTO api_keys SET api_key_name = '$name', api_key_secret = '$secret', api_key_decrypt_hash = '$apikey_specific_encryption_ciphertext', api_key_expire = '$expire', api_key_user_id = $user_id");
+    mysqli_query($mysqli,"INSERT INTO api_keys SET api_key_name = '$name', api_key_secret = '$secret_hash', api_key_decrypt_hash = '$apikey_specific_encryption_ciphertext', api_key_expire = '$expire', api_key_user_id = $user_id");
 
     $api_key_id = mysqli_insert_id($mysqli);
 

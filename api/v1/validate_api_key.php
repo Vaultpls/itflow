@@ -65,10 +65,16 @@ if (isset($_GET['api_key'])) {
 if (isset($_POST['api_key'])) {
     $api_key = escapeSql($_POST['api_key']);
 }
+// Prefer an Authorization: Bearer header so keys do not have to travel in URLs
+$authorization_header = $_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
+if (preg_match('/^Bearer\s+(.+)$/i', $authorization_header, $bearer_match)) {
+    $api_key = escapeSql(trim($bearer_match[1]));
+}
 
 // Validate API key
 if (isset($api_key)) {
     $api_key = escapeSql($api_key);
+    $api_key_hash = 'sha256:' . hash('sha256', $api_key);
 
     // Ten bad keys per IP per minute; each failure still logs, but a flood is cut off
     $api_failures = mysqli_fetch_assoc(mysqli_query($mysqli, "SELECT COUNT(log_id) AS failure_count FROM logs WHERE log_type = 'API' AND log_action = 'Failed' AND log_ip = '$ip' AND log_created_at > (NOW() - INTERVAL 1 MINUTE)"));
@@ -80,7 +86,7 @@ if (isset($api_key)) {
         exit();
     }
 
-    $sql = mysqli_query($mysqli, "SELECT api_key_decrypt_hash, api_key_name, api_key_user_id FROM api_keys WHERE api_key_secret = '$api_key' AND api_key_expire > NOW() LIMIT 1");
+    $sql = mysqli_query($mysqli, "SELECT api_key_id, api_key_secret, api_key_decrypt_hash, api_key_name, api_key_user_id FROM api_keys WHERE (api_key_secret = '$api_key_hash' OR api_key_secret = '$api_key') AND api_key_expire > NOW() LIMIT 1");
 
     // Failed
     if (mysqli_num_rows($sql) !== 1) {
@@ -102,6 +108,13 @@ if (isset($api_key)) {
 
         // Set client ID, company ID & key name
         $row = mysqli_fetch_assoc($sql);
+        $api_key_id = intval($row['api_key_id']);
+
+        // Upgrade a legacy plaintext key to its hash on first successful use
+        if (hash_equals((string) $row['api_key_secret'], $api_key)) {
+            mysqli_query($mysqli, "UPDATE api_keys SET api_key_secret = '$api_key_hash' WHERE api_key_id = $api_key_id");
+        }
+
         $api_key_name = htmlentities($row['api_key_name']);
         $api_key_decrypt_hash = $row['api_key_decrypt_hash']; // No sanitization
         $api_key_user_id = intval($row['api_key_user_id']);

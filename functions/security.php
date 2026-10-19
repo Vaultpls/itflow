@@ -351,7 +351,7 @@ function securityHeaders() {
         header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
     }
 
-    header("Content-Security-Policy: default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; frame-src 'self'; form-action 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
+    header("Content-Security-Policy: default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://js.stripe.com; font-src 'self' data:; connect-src 'self' https://api.stripe.com; frame-src 'self' https://js.stripe.com https://hooks.stripe.com; form-action 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
 }
 
 // TOTP secrets are encrypted at rest with a key derived from the install's backup

@@ -70,6 +70,16 @@ if (isset($_POST['api_key'])) {
 if (isset($api_key)) {
     $api_key = escapeSql($api_key);
 
+    // Ten bad keys per IP per minute; each failure still logs, but a flood is cut off
+    $api_failures = mysqli_fetch_assoc(mysqli_query($mysqli, "SELECT COUNT(log_id) AS failure_count FROM logs WHERE log_type = 'API' AND log_action = 'Failed' AND log_ip = '$ip' AND log_created_at > (NOW() - INTERVAL 1 MINUTE)"));
+    if (intval($api_failures['failure_count'] ?? 0) >= 10) {
+        header("HTTP/1.1 429 Too Many Requests");
+        $return_arr['success'] = "False";
+        $return_arr['message'] = "Too many failed authentication attempts. Try again later.";
+        echo json_encode($return_arr);
+        exit();
+    }
+
     $sql = mysqli_query($mysqli, "SELECT api_key_decrypt_hash, api_key_name, api_key_user_id FROM api_keys WHERE api_key_secret = '$api_key' AND api_key_expire > NOW() LIMIT 1");
 
     // Failed

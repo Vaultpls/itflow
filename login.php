@@ -49,7 +49,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $login_lock = mysqli_fetch_row(mysqli_query($mysqli, "SELECT GET_LOCK('$login_lock_name', 10)"));
 
     if (empty($login_lock[0])) {
-        error_log("ITFlow: timed out waiting on the login rate limit lock for $session_ip, proceeding unserialized");
+        error_log("ITFlow: timed out waiting on the login rate limit lock for $session_ip");
+        header("HTTP/1.1 429 Too Many Requests");
+        exit("<h2>$config_app_name</h2>Too many login attempts are in progress. Please try again in a moment.");
     }
 }
 
@@ -205,6 +207,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['login']) || isset($_
 
         $agentRow  = null;
         $clientRow = null;
+
+        // Per-account throttle: IP rotation alone cannot make an account unlimited
+        $account_attempts = mysqli_fetch_assoc(mysqli_query($mysqli, "
+            SELECT COUNT(log_id) AS failed_account_count
+            FROM logs
+            WHERE log_type = 'Login'
+              AND log_action IN ('Failed', 'MFA Failed')
+              AND (log_description = 'Failed login attempt using $email' OR log_description = '$email failed MFA')
+              AND log_created_at > (NOW() - INTERVAL 10 MINUTE)
+        "));
+        if (intval($account_attempts['failed_account_count'] ?? 0) >= 20) {
+            logAudit("Login", "Blocked", "$email was blocked after repeated failed login attempts");
+            header("HTTP/1.1 429 Too Many Requests");
+            exit("<h2>$config_app_name</h2>This account has been temporarily blocked due to repeated failed login attempts. Please try again later. <br><br>This action has been logged.");
+        }
 
         // Step 1: verify password. Step 2/3: use stored allowed ids.
         $allowed_agent_id  = null;

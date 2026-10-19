@@ -84,11 +84,13 @@ function clientScopeSql($column) {
 
     $sql = '';
 
-    // 0 is included deliberately: a record with no client isn't any client's data, so a
-    // restricted user keeps seeing it. This also matches the deny branch below, where 0
-    // already passes NOT IN, and the old hand-rolled ticket override that did IN (0,...).
+    // 0 is included deliberately for most records: a record with no client isn't any
+    // client's data, so a restricted user keeps seeing it. Credentials are the exception:
+    // client-less credentials are the MSP's own logins and must not leak to a restricted
+    // user, so the credential column uses the allow-list only.
     if (!empty($client_access_array)) {
-        $sql .= " AND $column IN (0," . implode(',', array_map('intval', $client_access_array)) . ")";
+        $zero = $column === 'credential_client_id' ? '' : '0,';
+        $sql .= " AND $column IN (" . $zero . implode(',', array_map('intval', $client_access_array)) . ")";
     }
 
     if (!empty($client_deny_array)) {

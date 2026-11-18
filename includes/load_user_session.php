@@ -1,14 +1,14 @@
 <?php
 
 $session_ip = escapeSql(getIP());
-$session_user_agent = escapeSql($_SERVER['HTTP_USER_AGENT']);
+$session_user_agent = escapeSql($_SERVER['HTTP_USER_AGENT'] ?? '');
 $session_user_id = intval($_SESSION['user_id']);
 
 $sql = mysqli_query(
     $mysqli,
     "SELECT role_is_admin, role_name, user_archived_at, user_avatar, user_config_force_mfa,
         user_config_records_per_page, user_config_theme_dark, user_email, user_name, user_role_id,
-        user_status, user_token, user_type, user_php_session FROM users
+        user_password, user_status, user_token, user_type FROM users
      LEFT JOIN user_settings ON users.user_id = user_settings.user_id
      LEFT JOIN user_roles ON user_role_id = role_id
      WHERE users.user_id = $session_user_id"
@@ -16,15 +16,9 @@ $sql = mysqli_query(
 
 $row = mysqli_fetch_assoc($sql);
 
-// A password change/reset rotates user_php_session, which retires every older session
-$session_version = (string) ($row['user_php_session'] ?? '');
-if (isset($_SESSION['user_session_version']) && !hash_equals($session_version, (string) $_SESSION['user_session_version'])) {
-    session_unset();
-    session_destroy();
-    redirect("/login.php");
-}
-if (!isset($_SESSION['user_session_version'])) {
-    $_SESSION['user_session_version'] = $session_version;
+$session_stamp_current = userSessionStamp($row['user_password'] ?? '');
+if ($row) {
+    unset($row['user_password']);
 }
 
 $session_name = escapeSql($row['user_name']);
@@ -38,7 +32,7 @@ $session_user_role = intval($row['user_role_id']);
 $session_user_role_display = escapeSql($row['role_name']);
 $session_is_admin = isset($row['role_is_admin']) && $row['role_is_admin'] == 1;
 $session_user_config_force_mfa = intval($row['user_config_force_mfa']);
-$user_config_records_per_page = intval($row['user_config_records_per_page']);
+$user_config_records_per_page = max(1, intval($row['user_config_records_per_page']));
 $user_config_theme_dark = intval($row['user_config_theme_dark']);
 
 // Check user type is agent aka 1
@@ -60,6 +54,25 @@ if ($session_user_archived_at !== null) {
     session_unset();
     session_destroy();
     redirect("/login.php");
+}
+
+// Check the password hasn't changed since this session signed in - by them elsewhere,
+// an admin, or the incident-response reset (userSessionStamp())
+if (!hash_equals($session_stamp_current, (string) ($_SESSION['user_session_stamp'] ?? ''))) {
+    session_unset();
+    session_destroy();
+    redirect("/login.php");
+}
+
+// MFA required on this account and not set up yet: setting it up, or signing out, is all
+// this session may do - every other page, modal, AJAX call and POST goes back to the set
+// up page. Signing in only sends them there; this is what keeps them there, including when
+// an admin requires MFA, or resets it, on an agent who is already signed in.
+if ($session_user_config_force_mfa === 1 && trim((string) $session_token) === '' && !requestIsMfaSetup([
+    'agent/user/mfa_enforcement.php' => [[[], []]],
+    'agent/user/post.php' => [[[], ['csrf_token', 'enable_mfa', 'verify_code']], [['logout'], []]],
+])) {
+    redirect("/agent/user/mfa_enforcement.php");
 }
 
 // Load user client permissions (allow + deny lists)

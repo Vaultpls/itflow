@@ -28,6 +28,7 @@ if ($total_found_rows > 5) {
     <div class="row align-items-center g-2">
         <div class="col-auto col-sm">
             <form action="post.php" method="post">
+                <input type="hidden" name="csrf_token" value="<?= escapeHtml($_SESSION['csrf_token'] ?? '') ?>">
                 <div class="d-flex align-items-center">
                     <select onchange="this.form.submit()" class="form-select form-select-sm w-auto" name="change_records_per_page" aria-label="Records per page">
                         <option <?php if ($user_config_records_per_page == 5) { echo "selected"; } ?> >5</option>
@@ -71,14 +72,11 @@ if ($total_found_rows > 5) {
 
                 <?php
 
-                if ($total_pages <= 100) {
-                    $pages_split = 10;
-                }
-                if (($total_pages <= 1000) && ($total_pages > 100)) {
-                    $pages_split = 100;
-                }
-                if (($total_pages <= 10000) && ($total_pages > 1000)) {
-                    $pages_split = 1000;
+                // Every 10th page is linked up to 100 pages, every 100th up to 1,000, and so on up -
+                // past 10,000 pages this had no value, and the division below ended the page
+                $pages_split = 10;
+                while ($pages_split * 10 < $total_pages) {
+                    $pages_split *= 10;
                 }
                 if ($page > 1) {
                     $prev_class = "";

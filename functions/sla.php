@@ -3,11 +3,11 @@
 /*
  * ITFlow - Ticket SLA helpers
  *
- * SLAs are optional at every level. A ticket only gets SLA targets when an
- * assignment resolves for its client + priority (client-level assignments win,
- * client 0 rows are the global default, and an assignment pointing at SLA 0 is
- * an explicit "no SLA" override). Tickets with ticket_sla_id = 0 are simply
- * ignored by the SLA cron, the list highlighting and the reports.
+ * SLAs are optional. A ticket only gets SLA targets when one resolves for its
+ * client + priority: the SLA its client's contract in force sets for the
+ * priority, else the default for the priority (sla_assignments, client 0 -
+ * Admin > SLAs). A client has none of its own. Tickets with ticket_sla_id = 0
+ * are simply ignored by the SLA cron, the list highlighting and the reports.
  *
  * Deadlines are computed ONCE at write time (creation / priority change /
  * client change / manual SLA change) and stored on the ticket as
@@ -431,27 +431,34 @@ function syncTicketSlaClock($ticket_id)
 }
 
 // Resolve which SLA (if any) applies to a client + priority combination.
-// Returns an sla_id, or 0 when no SLA applies.
-function getTicketSlaId($client_id, $priority)
+// Returns an sla_id, or 0 when no SLA applies. A contract in force for the
+// client that sets an SLA for the priority comes first (contractSlaFor() in
+// functions/contract_billing.php), else the default for the priority in
+// Admin > SLAs (before the 3.5.0 update, the client's own first, as it was) -
+// $with_contract false gives what applies without a contract.
+function getTicketSlaId($client_id, $priority, $with_contract = true)
 {
     global $mysqli;
 
     $client_id = intval($client_id);
+
+    if ($with_contract && $client_id > 0 && function_exists('contractSlaFor')) {
+        $contract_sla_id = contractSlaFor($client_id, $priority);
+        if ($contract_sla_id) {
+            return $contract_sla_id;
+        }
+    }
+
     $priority = escapeSql($priority);
 
     $sla_id = null;
 
-    // Client-level assignment wins; a row pointing at SLA 0 is an explicit
-    // "no SLA for this client/priority" override of the global default
-    if ($client_id > 0) {
-        $sql = mysqli_query($mysqli, "SELECT sla_assignment_sla_id FROM sla_assignments WHERE sla_assignment_client_id = $client_id AND sla_assignment_priority = '$priority' LIMIT 1");
-        if (mysqli_num_rows($sql)) {
-            $sla_id = intval(mysqli_fetch_assoc($sql)['sla_assignment_sla_id']);
-        }
-    }
-
-    // Fall back to the global default (client 0)
-    if (is_null($sla_id)) {
+    // Before the 3.5.0 update, the client's own, as it was - one pointing at SLA 0 is "no SLA"
+    $legacy = $client_id > 0 && function_exists('billingClientLegacyTerms') ? billingClientLegacyTerms($client_id) : null;
+    if ($legacy && array_key_exists((string) $priority, $legacy['slas'])) {
+        $sla_id = $legacy['slas'][(string) $priority];
+    } else {
+        // Else the default for the priority, from Admin > SLAs (client 0) - a client has no SLAs of its own, only its contract's
         $sql = mysqli_query($mysqli, "SELECT sla_assignment_sla_id FROM sla_assignments WHERE sla_assignment_client_id = 0 AND sla_assignment_priority = '$priority' LIMIT 1");
         if (mysqli_num_rows($sql)) {
             $sla_id = intval(mysqli_fetch_assoc($sql)['sla_assignment_sla_id']);
@@ -558,7 +565,10 @@ function applyTicketSla($ticket_id, $forced_sla_id = null)
 // in the email, so the wording only has to give the right impression - a
 // remainder under five minutes is dropped rather than rendering the likes of
 // "1 business hour 1 minute".
-function formatSlaMinutes($minutes)
+//
+// $exact drops nothing - "1 business day 7 hours 30 minutes" - for where the
+// words stand alone: a contract's response times, and Admin > SLAs.
+function formatSlaMinutes($minutes, $exact = false)
 {
     $minutes = intval($minutes);
 
@@ -585,8 +595,8 @@ function formatSlaMinutes($minutes)
         $remainder = $minutes % 60;
 
         $text = $hours . ' ' . $qualifier . 'hour' . ($hours == 1 ? '' : 's');
-        if ($remainder >= 5) {
-            $text .= ' ' . $remainder . ' minutes';
+        if ($remainder >= 5 || ($exact && $remainder > 0)) {
+            $text .= ' ' . $remainder . ' minute' . ($remainder == 1 ? '' : 's');
         }
 
         return $text;
@@ -594,64 +604,59 @@ function formatSlaMinutes($minutes)
 
     $days = intdiv($minutes, $day_minutes);
     $hours = intdiv($minutes % $day_minutes, 60);
+    $remainder = $minutes % $day_minutes % 60;
 
     $text = $days . ' ' . $qualifier . 'day' . ($days == 1 ? '' : 's');
     if ($hours > 0) {
         $text .= ' ' . $hours . ' hour' . ($hours == 1 ? '' : 's');
     }
+    if ($exact && $remainder > 0) {
+        $text .= ' ' . $remainder . ' minute' . ($remainder == 1 ? '' : 's');
+    }
 
     return $text;
 }
 
-// Client-facing SLA block for a "ticket created" email. Returns '' when no SLA
-// applies to the ticket or the plan carries no response target, so callers can
-// append it unconditionally.
-//
-// Call this AFTER applyTicketSla(), which is what stamps ticket_response_due_at.
-//
-// The returned HTML deliberately contains NO single or double quotes. Most of
-// these email bodies are assembled pre-escaped and handed to addToMailQueue,
-// which interpolates the body straight into its INSERT without escaping it, so
-// a stray quote here would break the query at those call sites.
-function getTicketSlaEmailNotice($ticket_id, $company_phone = '')
+// The minutes in one business day, or 0 when no business calendar is set and
+// the clocks run around the clock - the same test addBusinessMinutes makes.
+function slaBusinessDayMinutes()
 {
-    global $mysqli;
+    $sla_settings = getSlaSettings();
+    $day_start = $sla_settings['business_hours_start'];
+    $day_end = $sla_settings['business_hours_end'];
 
-    $ticket_id = intval($ticket_id);
-
-    $sql = mysqli_query($mysqli, "SELECT ticket_priority, ticket_response_due_at, sla_response_minutes
-        FROM tickets
-        LEFT JOIN slas ON ticket_sla_id = sla_id
-        WHERE ticket_id = $ticket_id LIMIT 1");
-    if (!$sql || !mysqli_num_rows($sql)) {
-        return '';
-    }
-    $row = mysqli_fetch_assoc($sql);
-
-    $response_minutes = intval($row['sla_response_minutes']);
-
-    if (empty($row['ticket_response_due_at']) || $response_minutes <= 0) {
-        return '';
+    if (empty($sla_settings['business_days']) || empty($day_start) || empty($day_end) || $day_start >= $day_end) {
+        return 0;
     }
 
-    // The only value in this notice that comes from the database rather than a
-    // literal - escaped so the quote-free guarantee above holds for it too
-    $priority = escapeHtml($row['ticket_priority']);
-    $target = formatSlaMinutes($response_minutes);
-    $due = date('D j M, g:i A', strtotime($row['ticket_response_due_at']));
+    return intval((strtotime($day_end) - strtotime($day_start)) / 60);
+}
 
-    $notice = "<br><br>Priority: $priority<br>Target response: within $target (by $due)";
+// A target as the hours and minutes it was typed as - "48 hours", "1 hour 30
+// minutes", "45 minutes" - where formatSlaMinutes() says how long that is in
+// business days. Admin > SLAs shows both: 48 hours of a 9-5 day is six days.
+function formatSlaClockMinutes($minutes)
+{
+    $minutes = max(0, intval($minutes));
+    $hours = intdiv($minutes, 60);
+    $remainder = $minutes % 60;
 
-    // Higher priorities get told to phone rather than sit on an email thread
-    if (!empty($company_phone) && ($priority == 'Urgent' || $priority == 'High')) {
-        if ($priority == 'Urgent') {
-            $notice .= "<br><br><strong>This ticket is marked Urgent.</strong> If the issue is stopping work right now, please call us on $company_phone rather than waiting for a reply to this email.";
-        } else {
-            $notice .= "<br><br><strong>This ticket is marked High priority.</strong> If it is business-impacting, calling us on $company_phone will get you the fastest response.";
-        }
+    $parts = [];
+    if ($hours > 0) {
+        $parts[] = $hours . ' hour' . ($hours == 1 ? '' : 's');
+    }
+    if ($remainder > 0 || !$parts) {
+        $parts[] = $remainder . ' minute' . ($remainder == 1 ? '' : 's');
     }
 
-    return $notice;
+    return implode(' ', $parts);
+}
+
+// A target from the SLA window's two boxes, hours and minutes, in minutes.
+// Either can be left empty; a caller sending only minutes sends the lot.
+function slaTargetMinutes($hours, $minutes)
+{
+    return max(0, intval($hours)) * 60 + max(0, intval($minutes));
 }
 
 // Record the ticket's first response (if not already recorded) and judge the

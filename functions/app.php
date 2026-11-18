@@ -3,38 +3,27 @@
 // App/UI helpers - icons, badges, lookups, mail queue, iCal, taxes, update check
 // Split from the former monolithic functions.php
 
-function getAssetIcon($asset_type) {
-    if ($asset_type == 'Laptop') {
-        $device_icon = "laptop";
-    } elseif ($asset_type == 'Desktop') {
-        $device_icon = "desktop";
-    } elseif ($asset_type == 'Server') {
-        $device_icon = "server";
-    } elseif ($asset_type == 'Printer') {
-        $device_icon = "print";
-    } elseif ($asset_type == 'Camera') {
-        $device_icon = "video";
-    } elseif ($asset_type == 'Switch') {
-        $device_icon = "network-wired";
-    } elseif ($asset_type == 'Firewall/Router') {
-        $device_icon = "fire-alt";
-    } elseif ($asset_type == 'Access Point') {
-        $device_icon = "wifi";
-    } elseif ($asset_type == 'Phone') {
-        $device_icon = "phone";
-    } elseif ($asset_type == 'Mobile Phone') {
-        $device_icon = "mobile-alt";
-    } elseif ($asset_type == 'Tablet') {
-        $device_icon = "tablet-alt";
-    } elseif ($asset_type == 'Display') {
-        $device_icon = "tv";
-    } elseif ($asset_type == 'Virtual Machine') {
-        $device_icon = "cloud";
-    } else {
-        $device_icon = "tag";
-    }
+/*
+ * The address of one of ITFlow's own scripts or stylesheets, with when the file last changed
+ * on the end - /js/app.js?v=1762700000. Browsers keep these files between visits, so without
+ * it they went on using the copies from before an update, against pages that expect the new
+ * ones, until someone cleared their cache. An update changes the files it brings, so their
+ * addresses change with them and browsers fetch them again; the files it didn't touch keep
+ * theirs, and stay cached.
+ *
+ * Every <script src> and <link rel="stylesheet" href> to a file in ITFlow - libs/ included -
+ * goes through this: src="<?= staticFileUrl('/js/app.js') ?>".
+ */
+function staticFileUrl(string $path): string
+{
+    $changed = @filemtime(dirname(__DIR__) . '/' . ltrim($path, '/'));
 
-    return $device_icon;
+    return $changed ? "$path?v=$changed" : $path;
+}
+
+/** The icon of an asset type, without its fa- (laptop) - from ASSET_TYPES (functions/asset_type.php); a tag for one it doesn't know. */
+function getAssetIcon($asset_type) {
+    return substr(assetTypeInfo($asset_type)['icon'], 3);
 }
 
 function getInvoiceBadgeColor($invoice_status) {
@@ -104,48 +93,6 @@ function getTicketStatusName($ticket_status) {
 
 }
 
-
-/**
- * Copies a ticket template's tasks onto a ticket.
- *
- * Called anywhere a ticket is raised from a template - the ticket add modals,
- * the bulk asset add, and every recurring ticket run (cron, force, bulk force).
- * Tasks are a snapshot: editing the template later does not touch tickets that
- * have already been raised from it.
- *
- * @param int $ticket_id          The ticket to attach the tasks to.
- * @param int $ticket_template_id The template to copy tasks from. 0 = no-op.
- *
- * @return int The number of tasks created.
- */
-function addTasksFromTicketTemplate($ticket_id, $ticket_template_id) {
-
-    global $mysqli;
-
-    $ticket_id = intval($ticket_id);
-    $ticket_template_id = intval($ticket_template_id);
-
-    if (!$ticket_id || !$ticket_template_id) {
-        return 0;
-    }
-
-    $sql_task_templates = mysqli_query($mysqli, "SELECT task_template_completion_estimate, task_template_name, task_template_order FROM task_templates WHERE task_template_ticket_template_id = $ticket_template_id ORDER BY task_template_order ASC");
-
-    $tasks_added = 0;
-
-    while ($row = mysqli_fetch_assoc($sql_task_templates)) {
-        $task_order = intval($row['task_template_order']);
-        $task_name = escapeSql($row['task_template_name']);
-        $task_completion_estimate = intval($row['task_template_completion_estimate']);
-
-        mysqli_query($mysqli, "INSERT INTO tasks SET task_name = '$task_name', task_order = $task_order, task_completion_estimate = $task_completion_estimate, task_ticket_id = $ticket_id");
-
-        $tasks_added++;
-    }
-
-    return $tasks_added;
-
-}
 
 /**
  * Copies a recurring ticket's task list onto a ticket it has just raised.
@@ -296,6 +243,36 @@ function getFieldById($table, $id, $field) {
 
 
 // Recursive function to display folder options - Used in folders files and documents
+/*
+ * A page of a list in newest-first date order, read from the newest dates
+ * back. $page(string $and) runs the list's query with $and added to its
+ * WHERE and returns the page's rows; $date_column is the list's date, which
+ * must be what the list sorts by first, descending; $needed is how many rows
+ * the page has - min(the page size, the list's count less the rows before
+ * the page).
+ *
+ * Tried over the last month, then the last year, then four, and only then the
+ * lot. Every row older than a cutoff sorts after every row newer than it, so
+ * when the rows from the cutoff on fill the page, the page is the same as the
+ * whole list's would be. A list over a union (Transactions, Income) has the
+ * database build and sort every line of it to give back 25; a date on the
+ * union is handed down to each table, where its date index finds the month's
+ * lines alone.
+ */
+function listNewestFirst(callable $page, $date_column, $needed) {
+    $needed = intval($needed);
+    if ($needed <= 0) {
+        return [];
+    }
+    foreach (['-1 month', '-1 year', '-4 years'] as $back) {
+        $rows = $page("AND $date_column >= '" . date('Y-m-d', strtotime($back)) . "'");
+        if (count($rows) >= $needed) {
+            return $rows;
+        }
+    }
+    return $page('');
+}
+
 function displayFolderOptions($parent_folder_id, $client_id, $indent = 0) {
     global $mysqli;
 
@@ -643,45 +620,173 @@ function checkForUpdates() {
 
 }
 
-function getMonthlyTax($tax_name, $month, $year, $mysqli) {
-    // Cash basis - tax is booked to the month the money arrived, in proportion to
-    // how much of the invoice that payment covered. Driving off payments (rather
-    // than invoice_items) counts each payment exactly once, and pre-aggregating
-    // the line items stops a multi-payment invoice multiplying its own tax.
-    $sql = "SELECT SUM(invoice_tax.tax_total * (payments.payment_amount / invoices.invoice_amount)) AS monthly_tax
-            FROM payments
-            INNER JOIN invoices ON invoices.invoice_id = payments.payment_invoice_id
-            INNER JOIN (SELECT item_invoice_id, SUM(item_tax) AS tax_total
-                        FROM invoice_items
-                        WHERE item_tax_id = (SELECT tax_id FROM taxes WHERE tax_name = '$tax_name')
-                        GROUP BY item_invoice_id) AS invoice_tax
-                ON invoice_tax.item_invoice_id = invoices.invoice_id
-            WHERE YEAR(payments.payment_date) = $year AND MONTH(payments.payment_date) = $month
-            AND invoices.invoice_amount > 0";
-    $result = mysqli_query($mysqli, $sql);
-    $row = mysqli_fetch_assoc($result);
-    return $row['monthly_tax'] ?? 0;
+/*
+ * What the Update page says about an update besides its commits, asked by
+ * cron/update_check.php once checkForUpdates() has fetched - the page never runs git.
+ *
+ *   version        APP_VERSION on the remote branch - the release an update brings
+ *   changelog      [[version, markdown], ...], newest first: the CHANGELOG.md sections
+ *                  newer than this install's release, and on a branch that keeps one
+ *                  version while work lands (develop), that version's section too
+ *   local_changes  ITFlow's own files this install has changed, which updating puts back
+ *                  (update_cli.php resets to the remote) - the first 50, and how many in all
+ *
+ * Anything that can't be read comes back empty rather than failing the check.
+ */
+function updateCheckDetails(int $pending_commits): array
+{
+    if (!defined('APP_VERSION')) {
+        require_once __DIR__ . '/../includes/app_version.php';
+    }
+
+    $details = ['version' => '', 'changelog' => [], 'local_changes' => [], 'local_changes_count' => 0];
+
+    if (!shellCommandsAvailable()) {
+        return $details;
+    }
+
+    $remote = "origin/" . getRepoBranch();
+
+    $version_file = (string) shell_exec("git show " . escapeshellarg("$remote:includes/app_version.php") . " 2>/dev/null");
+    if (preg_match('/DEFINE\(\s*["\']APP_VERSION["\']\s*,\s*["\']([^"\']+)["\']\s*\)/i', $version_file, $version_match)) {
+        $details['version'] = $version_match[1];
+    }
+
+    $changelog = (string) shell_exec("git show " . escapeshellarg("$remote:CHANGELOG.md") . " 2>/dev/null");
+    $include_current = $pending_commits > 0 && $details['version'] === APP_VERSION;
+    $details['changelog'] = updateChangelogSections($changelog, APP_VERSION, $include_current);
+
+    $changed = [];
+    exec("git status --porcelain --untracked-files=no 2>/dev/null", $changed);
+    foreach ($changed as $line) {
+        $path = trim(substr($line, 3));
+        if ($path !== '') {
+            $details['local_changes_count']++;
+            if (count($details['local_changes']) < 50) {
+                $details['local_changes'][] = $path;
+            }
+        }
+    }
+
+    return $details;
 }
 
-function getQuarterlyTax($tax_name, $quarter, $year, $mysqli) {
-    // Calculate start and end months for the quarter
-    $start_month = ($quarter - 1) * 3 + 1;
-    $end_month = $start_month + 2;
+/*
+ * The sections of a CHANGELOG.md newer than $installed - [[version, markdown], ...] in the
+ * file's order, newest first - plus $installed's own when $include_current. At most twelve
+ * releases and about 200 KB, so an install far behind still stores a sensible amount.
+ */
+function updateChangelogSections(string $markdown, string $installed, bool $include_current = false): array
+{
+    preg_match_all('/^## \[([^\]\n]+)\][^\n]*\n(.*?)(?=^## \[|\z)/ms', $markdown, $matches, PREG_SET_ORDER);
 
-    // SQL to calculate quarterly tax - see getMonthlyTax for why it is shaped this way
-    $sql = "SELECT SUM(invoice_tax.tax_total * (payments.payment_amount / invoices.invoice_amount)) AS quarterly_tax
-            FROM payments
-            INNER JOIN invoices ON invoices.invoice_id = payments.payment_invoice_id
-            INNER JOIN (SELECT item_invoice_id, SUM(item_tax) AS tax_total
-                        FROM invoice_items
-                        WHERE item_tax_id = (SELECT tax_id FROM taxes WHERE tax_name = '$tax_name')
-                        GROUP BY item_invoice_id) AS invoice_tax
-                ON invoice_tax.item_invoice_id = invoices.invoice_id
-            WHERE YEAR(payments.payment_date) = $year AND MONTH(payments.payment_date) BETWEEN $start_month AND $end_month
-            AND invoices.invoice_amount > 0";
-    $result = mysqli_query($mysqli, $sql);
-    $row = mysqli_fetch_assoc($result);
-    return $row['quarterly_tax'] ?? 0;
+    $sections = [];
+    $size = 0;
+
+    foreach ($matches as [, $version, $body]) {
+        $version = trim($version);
+        $newer = $installed === '' || version_compare($version, $installed, '>');
+
+        if (!$newer && !($include_current && $version === $installed)) {
+            continue;
+        }
+
+        $body = trim($body);
+        $size += strlen($body);
+
+        if (count($sections) >= 12 || ($sections && $size > 200000)) {
+            break;
+        }
+
+        $sections[] = [$version, $body];
+    }
+
+    return $sections;
+}
+
+/*
+ * One changelog section as HTML for the Update page. CHANGELOG.md uses a small part of
+ * Markdown - ### headings, - lists, paragraphs, `code`, **bold** and links - and only that is
+ * understood. Everything is escaped first, so nothing in the file reaches the page as markup.
+ * Developer Updates is folded away: the people reading this page are the MSP's admins.
+ */
+function updateChangelogHtml(string $markdown): string
+{
+    $inline = function (string $text): string {
+        $text = escapeHtml($text);
+        $text = preg_replace('/`([^`]+)`/', '<code>$1</code>', $text);
+        $text = preg_replace('/\*\*([^*]+)\*\*/', '<strong>$1</strong>', $text);
+        return preg_replace_callback('/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/', function ($link) {
+            return '<a href="' . $link[2] . '" target="_blank" rel="noopener noreferrer">' . $link[1] . '</a>';
+        }, $text);
+    };
+
+    // Into its ### parts - the text before the first heading has none
+    $parts = [];
+    $title = '';
+    $lines = [];
+    foreach (preg_split('/\r?\n/', $markdown) as $line) {
+        if (preg_match('/^###\s+(.+)$/', $line, $heading)) {
+            if ($title !== '' || trim(implode('', $lines)) !== '') {
+                $parts[] = [$title, $lines];
+            }
+            $title = trim($heading[1]);
+            $lines = [];
+            continue;
+        }
+        $lines[] = $line;
+    }
+    if ($title !== '' || trim(implode('', $lines)) !== '') {
+        $parts[] = [$title, $lines];
+    }
+
+    $html = '';
+    foreach ($parts as [$title, $lines]) {
+        // Paragraphs and lists - a line indented under a list item carries on that item
+        $body = '';
+        $paragraph = [];
+        $items = [];
+        $flush = function () use (&$body, &$paragraph, &$items, $inline) {
+            if ($paragraph) {
+                $body .= '<p>' . $inline(implode(' ', $paragraph)) . '</p>';
+                $paragraph = [];
+            }
+            if ($items) {
+                $body .= '<ul>' . implode('', array_map(function ($item) use ($inline) {
+                    return '<li>' . $inline($item) . '</li>';
+                }, $items)) . '</ul>';
+                $items = [];
+            }
+        };
+        foreach ($lines as $line) {
+            if (trim($line) === '') {
+                $flush();
+            } elseif (preg_match('/^\s{0,3}[-*]\s+(.*)$/', $line, $item)) {
+                if ($paragraph) {
+                    $flush();
+                }
+                $items[] = $item[1];
+            } elseif ($items && preg_match('/^\s+\S/', $line)) {
+                $items[count($items) - 1] .= ' ' . trim($line);
+            } else {
+                if ($items) {
+                    $flush();
+                }
+                $paragraph[] = trim($line);
+            }
+        }
+        $flush();
+
+        if ($title === '') {
+            $html .= $body;
+        } elseif (stripos($title, 'developer') !== false) {
+            $html .= '<details class="itflow-changelog-dev mt-3"><summary class="text-secondary">' . escapeHtml($title) . '</summary><div class="mt-2 small">' . $body . '</div></details>';
+        } else {
+            $html .= '<h6 class="text-uppercase text-secondary small fw-semibold mt-3 mb-2">' . escapeHtml($title) . '</h6>' . $body;
+        }
+    }
+
+    return $html;
 }
 
 function addToMailQueue($data) {
@@ -729,7 +834,10 @@ function addToMailQueue($data) {
             $queued_at = 'CURRENT_TIMESTAMP()';
         }
 
-        mysqli_query($mysqli, "INSERT INTO email_queue SET email_recipient = '$recipient', email_recipient_name = '$recipient_name', email_from = '$from', email_from_name = '$from_name', email_subject = '$subject', email_content = '$body', email_queued_at = $queued_at, email_cal_str = '$cal_str', email_attachments = '$attachments'");
+        // The ticket reply it carries (emailQueue()'s ticket_reply_id), once the 3.4.8 update has made the column
+        $ticket_reply_sql = !empty($email['ticket_reply_id']) ? ', email_ticket_reply_id = ' . intval($email['ticket_reply_id']) : '';
+
+        mysqli_query($mysqli, "INSERT INTO email_queue SET email_recipient = '$recipient', email_recipient_name = '$recipient_name', email_from = '$from', email_from_name = '$from_name', email_subject = '$subject', email_content = '$body', email_queued_at = $queued_at, email_cal_str = '$cal_str', email_attachments = '$attachments'$ticket_reply_sql");
     }
 
     return true;
@@ -744,59 +852,55 @@ function getTicketCalendarUid($ticket_id) {
     return "ticket-$ticket_id@$host";
 }
 
+/*
+ * The calendar file sent with a ticket's "scheduled" email - the visit, an hour
+ * long, in the instance timezone - for the recipient to add to their calendar.
+ * Published rather than sent as a meeting request: the support mailbox is not
+ * an organiser people should be accepting invitations from, and an "Accepted:"
+ * reply would arrive there as a new ticket. Rescheduling sends it again with the
+ * same UID and a higher SEQUENCE, which moves the one already added.
+ */
 function createiCalStr($datetime, $title, $description, $location, $uid = null) {
-    require_once "../libs/zapcal/zapcallib.php";
-
-    // Create the iCal object
-    $cal_event = new ZCiCal();
-    $event = new ZCiCalNode("VEVENT", $cal_event->curnode);
-
-
-    // Set the method to REQUEST to indicate an invite
-    $event->addNode(new ZCiCalDataNode("METHOD:REQUEST"));
-    $event->addNode(new ZCiCalDataNode("SUMMARY:" . $title));
-    $event->addNode(new ZCiCalDataNode("DTSTART:" . ZCiCal::fromSqlDateTime($datetime)));
-    // Assuming the end time is the same as start time.
-    // Todo: adjust this for actual duration
-    $event->addNode(new ZCiCalDataNode("DTEND:" . ZCiCal::fromSqlDateTime($datetime)));
-    $event->addNode(new ZCiCalDataNode("DTSTAMP:" . ZCiCal::fromSqlDateTime()));
+    global $config_timezone;
     if (empty($uid)) {
         $uid = date('Y-m-d-H-i-s') . "@" . ($_SERVER['SERVER_NAME'] ?? 'itflow');
     }
-    $event->addNode(new ZCiCalDataNode("UID:" . $uid));
-    $event->addNode(new ZCiCalDataNode("SEQUENCE:0"));
-    $event->addNode(new ZCiCalDataNode("LOCATION:" . $location));
-    $event->addNode(new ZCiCalDataNode("DESCRIPTION:" . $description));
-    // Todo: add organizer details
-    // $event->addNode(new ZCiCalDataNode("ORGANIZER;CN=Organizer Name:MAILTO:organizer@example.com"));
-
-    // Return the iCal string
-    return $cal_event->export();
+    return icsCalendar(['method' => 'PUBLISH', 'invite' => true], [[
+        'uid' => $uid,
+        'start' => $datetime,
+        'end' => date('Y-m-d H:i:s', strtotime($datetime) + CALENDAR_TICKET_MINUTES * 60),
+        'summary' => $title,
+        'description' => $description,
+        'location' => $location,
+        'stamp' => date('Y-m-d H:i:s'),
+        'sequence' => icsSequenceNow(),
+        'status' => 'CONFIRMED',
+    ]], $config_timezone);
 }
 
+/*
+ * Its cancellation. There is no stored copy of the original to reopen - the
+ * match is made by UID - and the SEQUENCE must outrank the one it was sent with.
+ */
 function createiCalStrCancel($datetime, $title, $uid) {
-    require_once "../libs/zapcal/zapcallib.php";
+    global $config_timezone;
+    return icsCalendar(['method' => 'CANCEL', 'invite' => true], [[
+        'uid' => $uid,
+        'start' => $datetime ?: date('Y-m-d H:i:s'),
+        'end' => date('Y-m-d H:i:s', strtotime($datetime ?: 'now') + CALENDAR_TICKET_MINUTES * 60),
+        'summary' => $title,
+        'stamp' => date('Y-m-d H:i:s'),
+        'sequence' => icsSequenceNow(),
+        'status' => 'CANCELLED',
+    ]], $config_timezone);
+}
 
-    // Build the cancellation fresh. There is no stored copy of the original
-    // invite to reopen - the match is made by UID, not by the body.
-    $cal_event = new ZCiCal();
-
-    // METHOD belongs on the VCALENDAR, not on the VEVENT
-    $cal_event->tree->data['METHOD'] = new ZCiCalDataNode("METHOD:CANCEL");
-
-    $event = new ZCiCalNode("VEVENT", $cal_event->curnode);
-    $event->addNode(new ZCiCalDataNode("UID:" . $uid));
-    $event->addNode(new ZCiCalDataNode("SUMMARY:" . $title));
-    if (!empty($datetime)) {
-        $event->addNode(new ZCiCalDataNode("DTSTART:" . ZCiCal::fromSqlDateTime($datetime)));
-        $event->addNode(new ZCiCalDataNode("DTEND:" . ZCiCal::fromSqlDateTime($datetime)));
-    }
-    $event->addNode(new ZCiCalDataNode("DTSTAMP:" . ZCiCal::fromSqlDateTime()));
-    // Must outrank the invite's SEQUENCE:0 or clients ignore the cancellation
-    $event->addNode(new ZCiCalDataNode("SEQUENCE:1"));
-    $event->addNode(new ZCiCalDataNode("STATUS:CANCELLED"));
-
-    return $cal_event->export();
+/*
+ * A SEQUENCE that only goes up: minutes since 2020. For what has nowhere to
+ * keep a counter - a ticket's schedule - each resend outranks the last.
+ */
+function icsSequenceNow() {
+    return intdiv(time() - 1577836800, 60);
 }
 
 /*
@@ -877,14 +981,14 @@ function getSentMethods() {
  * Products for the line-item autocomplete on invoices, quotes and recurring
  * invoices.
  *
- * All three pages share js/product_autocomplete.js, so they must all be handed
- * the same shape. They used to carry a SELECT each and they drifted: quote and
+ * All three pages share js/billing_items.js, so they must all be handed the
+ * same shape. They used to carry a SELECT each and they drifted: quote and
  * recurring invoice only selected label/description/price/tax, so the shared
  * onSelect wrote item.product_name - undefined - into the item name field.
  *
  * Returns a JSON string ready to emit into the page.
  */
-function getProductsForAutocomplete($mysqli): string
+function getProductsForAutocomplete($mysqli, $client_id = 0): string
 {
     $products = [];
 
@@ -899,18 +1003,93 @@ function getProductsForAutocomplete($mysqli): string
             product_tax_id AS tax,
             tax_percent,
             product_id AS prod_id,
-            COALESCE(SUM(product_stock.stock_qty), 0) AS available_stock
+            product_frequency AS frequency,
+            product_seat_source AS seat_source,
+            product_track_stock AS track_stock,
+            " . productStockSql() . " AS available_stock
         FROM products
-        LEFT JOIN product_stock ON product_id = stock_product_id
         LEFT JOIN taxes ON product_tax_id = tax_id
         WHERE product_archived_at IS NULL
-        GROUP BY product_id
         ORDER BY product_name ASC
     ");
 
     while ($row = mysqli_fetch_assoc($sql)) {
+        // For a client, the rate a line of it gets them - none when they are
+        // tax exempt, their own rate in place of the product's (functions/tax.php)
+        if ($client_id) {
+            $row['tax'] = taxDefaultFor($client_id, 'product', intval($row['tax']));
+            $tax_row = taxRow($row['tax']);
+            $row['tax_percent'] = $tax_row ? $tax_row['tax_percent'] : null;
+        }
         $products[] = $row;
     }
 
-    return json_encode($products) ?: '[]';
+    // Safe inside a <script> element, whatever a product's name or description holds
+    return json_encode($products, JSON_HEX_TAG | JSON_HEX_AMP) ?: '[]';
+}
+
+/*
+ * Agent user limit
+ *
+ * Optional cap on the number of active agent users, set in config.php:
+ *     $config_agent_user_limit = 5;
+ * Unset or 0 means unlimited, which is the default for every self-hosted install.
+ * It lives in config.php rather than the settings table on purpose: on a hosted
+ * instance the provider controls config.php and the customer's admins do not, so
+ * nobody inside the app can raise their own limit.
+ *
+ * A managed instance's manager can set one instead (functions/managed.php), and when it does,
+ * it is the one that counts - that is where the instance's plan is kept.
+ *
+ * An active agent is user_type 1, enabled and not archived. Disabled and archived
+ * users do not use a seat. An invite waiting and in date does
+ * (userInvitesHoldingSeats(), functions/user_invite.php) - it is a seat promised.
+ * The manager's support user doesn't: it is the manager's, not one of theirs.
+ */
+function getAgentUserLimit(): int
+{
+    global $config_agent_user_limit;
+
+    $managed = managedSeatLimit();
+    if ($managed > 0) {
+        return $managed;
+    }
+
+    return max(0, intval($config_agent_user_limit ?? 0));
+}
+
+function getActiveAgentUserCount(): int
+{
+    global $mysqli;
+
+    $support_user_id = managedSupportUserId();
+
+    $row = mysqli_fetch_row(mysqli_query($mysqli, "SELECT COUNT(user_id) FROM users WHERE user_type = 1 AND user_status = 1 AND user_archived_at IS NULL"
+        . ($support_user_id ? " AND user_id <> $support_user_id" : '')));
+
+    return intval($row[0]);
+}
+
+/** Seats taken: active agents, and invites waiting in date (leaving out $except_invite_id). */
+function getAgentSeatsTaken(int $except_invite_id = 0): int
+{
+    return getActiveAgentUserCount() + userInvitesHoldingSeats($except_invite_id);
+}
+
+function agentUserLimitReached(int $except_invite_id = 0): bool
+{
+    $limit = getAgentUserLimit();
+
+    return $limit > 0 && getAgentSeatsTaken($except_invite_id) >= $limit;
+}
+
+function agentUserLimitMessage(): string
+{
+    $limit = getAgentUserLimit();
+    $invites = userInvitesHoldingSeats();
+    $provider = managedSeatLimit() > 0 ? escapeHtml(managedManagerName()) : 'your provider';
+
+    return "Agent user limit reached - this installation allows <strong>$limit</strong> active agent " . ($limit == 1 ? "user" : "users")
+        . ($invites ? ", and $invites invite" . ($invites === 1 ? ' is' : 's are') . " waiting for one" : '')
+        . ". Archive or disable a user" . ($invites ? ' or cancel an invite' : '') . " first, or contact $provider to add more.";
 }

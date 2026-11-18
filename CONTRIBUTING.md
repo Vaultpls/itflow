@@ -89,7 +89,7 @@ One crontab entry runs everything:
 * * * * * php /path/to/itflow/cron/cron.php >/dev/null
 ```
 
-`cron/cron.php` is a dispatcher. It wakes every minute, works out which scripts in `cron/` are due, and requires them into its own process. Adding a job is a new script in `cron/` plus an entry in `includes/cron_jobs.php`. The crontab never changes again.
+`cron/cron.php` is a dispatcher. It wakes every minute, works out which scripts in `cron/` are due, and requires them into its own process. Adding a job is a new script in `cron/` plus an entry in `includes/cron_jobs.php` - with a `label`, a `description` written for the admin reading Maintenance > Cron, and an `icon` for its row there. The crontab never changes again.
 
 That registry is the only thing that decides **which** scripts can run, and the schedule in it is only a default: it seeds the job's `cron_jobs` row the first time the dispatcher meets the job, and from then on the row is what runs, because Maintenance > Cron writes to it. The database therefore holds **when and whether**, never **what** — a row naming a script that is not in the registry is ignored, so nothing that reaches the database can point the dispatcher at an arbitrary file. Keep it that way.
 
@@ -114,7 +114,7 @@ Be precise about what it does, because it is easy to oversell. It is **not** a g
 
 That last part is the reason it is not redundant with `cron_job_enabled`. Turning the switch off and back on returns you to exactly the configuration you had. Sweeping all seven rows off and back on does not: `backup` ships `'enabled' => 0`, so the sweep quietly turns on nightly backups nobody asked for, along with anything else that was deliberately disabled.
 
-It defaults to `0`. That is a weaker guard than it looks — an install with no crontab entry runs nothing whatever the switch says, so the entry is the real gate — but it does mean adding the crontab line to a half-configured install is not enough on its own to start emailing. Both setup paths name the step on the way out.
+It defaults to `1`. An install with no crontab entry runs nothing whatever the switch says, so the entry is the real gate, and a new install has nothing to email or charge until someone adds it. Shipping it off only added a second step that could be missed in silence. Database 3.6.2 changed the column's default and nothing else: an install that already has the switch off keeps it off, because turning it on would start late fees, overdue reminders and autopay retries it has stopped. Don't write a migration that flips the value itself.
 
 ## Backups
 
@@ -136,6 +136,13 @@ Setup's restore step closes itself once the `users` table has rows, whatever `co
 Every script in `cron/` still runs standalone (`php cron/mail_queue.php`) and still takes its own lock when it does, so anything can be run by hand for testing.
 
 ---
+
+## Demo mode
+
+`$config_demo_mode = true;` in `config.php` makes an install a public demo, like demo.itflow.org (`functions/demo.php`). Two parts of it need you when you add a feature:
+
+- **Locks go by request key.** `demoModeGuard()` refuses a `post.php` or `ajax.php` request carrying a key in `DEMO_MODE_LOCKS`: anything that would reach outside the install, cost money or lock other visitors out - users and roles, a visitor's own sign-in, the mail, payment, AI and texting providers, API keys, backups, updates, cron and share links. A new handler in one of those areas adds its key there, or it is open on the demo. Anything new that connects somewhere a visitor types needs the same thought; certificate checks go through `demoModePublicAddress()`. Pages under `/guest/` open only for a signed-in session (`demoModeGuestGuard()`, from `includes/load_global_settings.php`) - a new guest page has to load that file.
+- **The nightly reset builds from the code.** The Demo Reset job (`demoModeReset()`) drops every table, loads `db.sql`, runs `seedDefaultData()`, loads every Starter Content pack and `demoDataLoad()`, and makes the demo accounts. What you add to those is in the demo the next morning, and the demo never needs a database update. They all have to work without a request: the reset runs from cron, with the vault opened in-process and `$session_user_id` set to the demo admin.
 
 ## Security rules (non-negotiable)
  
@@ -260,7 +267,7 @@ Two standing exceptions: junction tables (`client_tags`, `service_assets`, …) 
 **Schema changes require two edits in one PR:**
 
 1. `db.sql` — so fresh installs get the new schema.
-2. `admin/database_updates/<x.y.z>.php` — a new file named for the version it upgrades **to**, containing only the queries that apply the change. Migrations are sequential and rolling-release; never edit a historical file.
+2. `admin/database_updates/<x.y.z>.php` — a new file named for the version it upgrades **to**, containing only the queries that apply the change. Migrations are sequential and rolling-release; never edit a historical file. An install that has run a migration never runs it again, so an edit only reaches installs that hadn't updated yet and leaves the rest different: 2.3.7 first created `contract_templates.company_id`, was then changed to leave it out, and every install that ran it in v25.11 kept the column until 3.6.3 dropped it. To change what a shipped migration did, add a new one. The one exception is a migration that can't finish on some installs, which a new one can never reach: change it so that it can, without changing what it makes (3.2.8 was). Write each step so the migration can run again from wherever it stopped - check `information_schema` before an `ADD`, as 3.3.4 does - because MySQL and MariaDB don't undo the statements that went in before the one that failed. A `CREATE TABLE` in a migration ends `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`, as every table in `db.sql` does: leave the `COLLATE` out and the table takes the server's default, which on MySQL 8 and recent MariaDB is a different one, and the first query to put its text beside another table's fails with "Illegal mix of collations" (3.6.5 had to bring 22 such tables back). The updater now checks every table against `db.sql` after the migrations it applies and repairs one that differs, and the connection is given the same collation on every request (`functions/database_collation.php`) - a net under this rule, not a reason to skip it, and the reason a query never has to name a collation of its own.
 
 That is the whole job. `LATEST_DATABASE_VERSION` is derived from the highest-numbered filename in `admin/database_updates/`, and the runner (`admin/database_updates.php`) steps `config_current_database_version` after each file succeeds — so there is no constant to bump and no version-bump query to write. Each migration file needs the standard `defined('FROM_DB_UPDATER') || die(...)` guard at the top; copy an existing file's header.
 
@@ -276,6 +283,8 @@ One removed **variable** deserves its own warning: the old `$access_permission_q
 **Bulk vs. single actions.** If you change the behavior of a single action (e.g. resolving a ticket), check whether a `bulk_*` counterpart exists and update it too. They are currently parallel implementations and drift between them is a known bug source.
  
 **UI.** Bootstrap 4 / AdminLTE, modals per-module under `<portal>/modals/<module>/`, DataTables for lists, monospace styling for technical data (IPs, serials, keys) and proportional for human text. Match the page you're standing in.
+
+**Scripts and stylesheets go through `staticFileUrl()`.** Every `<script src>` and `<link href>` to a file in ITFlow — `libs/` included — is written `src="<?= staticFileUrl('/js/app.js') ?>"`, with the address from the site root (`/agent/js/files.js`, not `js/files.js`). It adds `?v=` and the file's modification time, so an update changes the address of each file it changes and browsers fetch the new copy; ITFlow sends no caching headers for these files, and without it browsers went on using the old ones for days or weeks after an update, until someone cleared their cache. A plain `src="/js/app.js"` works on your machine and breaks for users on the next update. Files that a library fetches by itself need the library's own setting — TinyMCE's `cache_suffix`, set in `js/tinymce_defaults.js`.
 
 **Modals post to the portal you are standing in, not the one they live in.** Modal forms use `action="post.php"`, which the browser resolves against the *page* URL, not the modal's own path. A modal under `admin/modals/` that an agent page opens by relative path therefore submits to `agent/post.php` and is handled by `agent/post/`, not `admin/post/`. If you reuse a modal across portals, every portal that can open it needs a handler that accepts the same field set — otherwise fields are silently dropped on one side.
  

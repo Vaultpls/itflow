@@ -11,7 +11,6 @@ require_once "../config.php";
 // Set Timezone
 require_once "../includes/inc_set_timezone.php";
 require_once "../functions.php";
-require_once "../libs/totp/totp.php";
 
 
 /*
@@ -64,7 +63,7 @@ if (isset($_GET['stripe_create_pi'])) {
     }
 
     // Setup Stripe from payment_providers
-    $stripe_provider = mysqli_fetch_assoc(mysqli_query($mysqli, "SELECT payment_provider_id, payment_provider_private_key FROM payment_providers WHERE payment_provider_name = 'Stripe' LIMIT 1"));
+    $stripe_provider = mysqli_fetch_assoc(mysqli_query($mysqli, "SELECT payment_provider_id, payment_provider_private_key FROM payment_providers WHERE payment_provider_name = 'Stripe' AND payment_provider_active = 1 LIMIT 1"));
     if (!$stripe_provider) {
         exit("Stripe not enabled / configured");
     }
@@ -82,21 +81,30 @@ if (isset($_GET['stripe_create_pi'])) {
     $stripe_customer = mysqli_fetch_assoc($stripe_customer_query);
     $stripe_customer_id = $stripe_customer ? escapeSql($stripe_customer['payment_provider_client']) : null;
 
-    $pi_description = "ITFlow: $client_name payment of $invoice_currency_code $balance_to_pay for $invoice_prefix$invoice_number";
+    // The card fee, when the client pays it - as guest_pay_invoice_stripe.php showed it, and booked from itflow_fees on the way back
+    $balance_cents = (int) round($balance_to_pay * 100);
+    $fee_cents = billingCardFeeCents($balance_cents, billingCardFeeFor($client_id));
+    $pi_metadata = [
+        'itflow_client_id' => $client_id,
+        'itflow_client_name' => $client_name,
+        'itflow_invoice_number' => $invoice_prefix . $invoice_number,
+        'itflow_invoice_id' => $invoice_id,
+    ];
+    if ($fee_cents > 0) {
+        $pi_metadata['itflow_fees'] = "$invoice_id:$fee_cents";
+    }
+
+    $pi_description = "ITFlow: $client_name payment of $invoice_currency_code " . number_format(($balance_cents + $fee_cents) / 100, 2, '.', '')
+        . ($fee_cents > 0 ? ' (with a ' . number_format($fee_cents / 100, 2, '.', '') . ' card fee)' : '') . " for $invoice_prefix$invoice_number";
 
     try {
         \Stripe\Stripe::setApiKey($stripe_secret_key);
 
         $paymentIntent = \Stripe\PaymentIntent::create([
-            'amount' => intval(round($balance_to_pay * 100)), // Stripe expects cents
+            'amount' => $balance_cents + $fee_cents, // Stripe expects cents
             'currency' => $invoice_currency_code,
             'description' => $pi_description,
-            'metadata' => [
-                'itflow_client_id' => $client_id,
-                'itflow_client_name' => $client_name,
-                'itflow_invoice_number' => $invoice_prefix . $invoice_number,
-                'itflow_invoice_id' => $invoice_id,
-            ],
+            'metadata' => $pi_metadata,
             'payment_method_types' => ['card'],
             'customer' => $stripe_customer_id,
         ]);
@@ -113,48 +121,5 @@ if (isset($_GET['stripe_create_pi'])) {
         echo json_encode(['error' => $e->getMessage()]);
     }
 
-    exit;
-}
-
-/*
- * Returns the current TOTP code for a shared credential
- * Authenticated via the share ID + key, same as guest_view_item.php
- */
-if (isset($_GET['get_share_totp_token'])) {
-
-    header('Content-Type: application/json');
-
-    $item_id = intval($_GET['id']);
-    $item_key = escapeSql($_GET['key']);
-
-    // Deliberately no item_view_limit check here - the page view already consumed a view,
-    //  and blocking token refreshes would break rotation for limit-1 shares.
-    //  Active + expiry checks still apply, so revoking the share stops codes immediately.
-    $sql = mysqli_query($mysqli, "SELECT item_related_id, item_client_id FROM shared_items WHERE item_id = $item_id AND item_key = '$item_key' AND item_type = 'Credential' AND item_active = 1 AND item_expire_at > NOW() LIMIT 1");
-
-    if (!$sql || mysqli_num_rows($sql) !== 1) {
-        exit(json_encode(['error' => 'invalid']));
-    }
-
-    $row = mysqli_fetch_assoc($sql);
-    $credential_id = intval($row['item_related_id']);
-    $client_id = intval($row['item_client_id']);
-
-    $credential_sql = mysqli_query($mysqli, "SELECT credential_otp_secret FROM credentials WHERE credential_id = $credential_id AND credential_client_id = $client_id LIMIT 1");
-
-    if (!$credential_sql || mysqli_num_rows($credential_sql) !== 1) {
-        exit(json_encode(['error' => 'invalid']));
-    }
-
-    $totp_secret = mysqli_fetch_assoc($credential_sql)['credential_otp_secret'];
-
-    if (empty($totp_secret)) {
-        exit(json_encode(['error' => 'invalid']));
-    }
-
-    echo json_encode([
-        'token' => TokenAuth6238::getTokenCode(strtoupper($totp_secret)),
-        'expires_in' => 30 - (time() % 30)
-    ]);
     exit;
 }

@@ -34,6 +34,9 @@ if (preg_match('#/agent/modals/([a-z_]+)/#', $modal_script, $modal_match)) {
 
 header('Content-Type: application/json');
 
+// A window - permissionRefuse() (functions/auth.php) answers in one too
+define('ITFLOW_MODAL', true);
+
 // Check for the 'id' parameter
 //if (!isset($_GET['id'])) {
 //    echo json_encode(['error' => 'ID missing.']);
